@@ -40,9 +40,12 @@ const EMOTION_EMOJI: Record<string, string> = {
 interface FaceCameraProps {
     onMoodDetected: (mood: MoodType, confidence: number) => void;
     isActive: boolean;
+    isDetecting: boolean;
+    onStartDetect: () => void;
+    onStopDetect: () => void;
 }
 
-export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps) {
+export default function FaceCamera({ onMoodDetected, isActive, isDetecting, onStartDetect, onStopDetect }: FaceCameraProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -52,6 +55,7 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
     const [allExpressions, setAllExpressions] = useState<Record<string, number>>({});
     const [faceApiLoaded, setFaceApiLoaded] = useState(false);
     const [stream, setStream] = useState<MediaStream | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
     const [voiceEnabled, setVoiceEnabled] = useState(false);
     const [lastSpoken, setLastSpoken] = useState<string | null>(null);
     const [scanInterval, setScanInterval] = useState(3);
@@ -83,25 +87,52 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
     // Start camera
     useEffect(() => {
         if (!isActive || !faceApiLoaded) return;
+
+        // Reset states
+        setCameraError(null);
+        setIsLoading(true);
+
         const startCamera = async () => {
             try {
+                // Check if mediaDevices API is available (requires secure context: HTTPS or localhost)
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    setCameraError('Camera requires a secure connection. Please access the app at http://localhost:3000 (not via IP address).');
+                    setIsLoading(false);
+                    return;
+                }
+
+                // Stop any existing stream first
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(t => t.stop());
+                    streamRef.current = null;
+                }
+
                 const mediaStream = await navigator.mediaDevices.getUserMedia({
                     video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
                 });
+                streamRef.current = mediaStream;
                 setStream(mediaStream);
                 if (videoRef.current) {
                     videoRef.current.srcObject = mediaStream;
                     videoRef.current.onloadeddata = () => setIsLoading(false);
                 }
             } catch (err: any) {
-                if (err.name === 'NotAllowedError') setCameraError('Camera access denied.');
-                else if (err.name === 'NotFoundError') setCameraError('No camera found.');
-                else setCameraError('Unable to access camera.');
+                console.error('Camera access error:', err);
+                if (err.name === 'NotAllowedError') setCameraError('Camera access denied. Please allow camera permissions in your browser.');
+                else if (err.name === 'NotFoundError') setCameraError('No camera found on this device.');
+                else if (err.name === 'NotReadableError') setCameraError('Camera is being used by another application.');
+                else setCameraError(`Unable to access camera: ${err.message || err.name}`);
                 setIsLoading(false);
             }
         };
         startCamera();
-        return () => { stream?.getTracks().forEach(t => t.stop()); };
+
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+            }
+        };
     }, [isActive, faceApiLoaded]);
 
     // Speak detected mood
@@ -134,7 +165,7 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
 
     // Run face detection
     useEffect(() => {
-        if (!isActive || isLoading || !faceApiLoaded || !videoRef.current || cameraError) return;
+        if (!isActive || !isDetecting || isLoading || !faceApiLoaded || !videoRef.current || cameraError) return;
 
         const detectFace = async () => {
             const faceapi = faceApiRef.current;
@@ -166,9 +197,11 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
                             setConsecutiveMatches(c => {
                                 const newCount = c + 1;
                                 if (newCount >= scanInterval) {
-                                    // Trigger auto-detect
+                                    // Trigger auto-detect and reset
                                     if (EMOTION_TO_MOOD[maxExpr]) {
                                         onMoodDetected(EMOTION_TO_MOOD[maxExpr], maxVal);
+                                        // Auto-reset detection state
+                                        onStopDetect();
                                     }
                                     return 0; // Reset after trigger
                                 }
@@ -278,7 +311,7 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
 
         intervalRef.current = setInterval(detectFace, scanInterval * 1000);
         return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-    }, [isActive, isLoading, faceApiLoaded, cameraError, voiceEnabled, lastSpoken, scanInterval]);
+    }, [isActive, isDetecting, isLoading, faceApiLoaded, cameraError, voiceEnabled, lastSpoken, scanInterval]);
 
     // Cleanup
     useEffect(() => {
@@ -469,6 +502,56 @@ export default function FaceCamera({ onMoodDetected, isActive }: FaceCameraProps
                             </motion.div>
                         )}
                     </AnimatePresence>
+
+                    {/* Start Detecting Button */}
+                    <div className="px-4 pb-3">
+                        {!isDetecting ? (
+                            <motion.button
+                                onClick={() => {
+                                    // Reset state before starting new detection
+                                    setDetectedEmotion(null);
+                                    setConfidence(0);
+                                    setConsecutiveMatches(0);
+                                    setAllExpressions({});
+                                    setLastSpoken(null);
+                                    if (canvasRef.current) {
+                                        const ctx = canvasRef.current.getContext('2d');
+                                        ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                                    }
+                                    onStartDetect();
+                                }}
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.95 }}
+                                className="w-full py-3 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all"
+                                style={{
+                                    background: 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)',
+                                    color: '#000',
+                                    boxShadow: '0 0 30px rgba(0, 255, 136, 0.3)',
+                                }}
+                            >
+                                ▶ Start Detecting
+                            </motion.button>
+                        ) : (
+                            <div className="flex items-center justify-center gap-2 py-3">
+                                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                                <span className="text-[10px] tracking-[0.2em] uppercase text-green-400 font-bold">
+                                    Scanning your face...
+                                </span>
+                                <button
+                                    onClick={() => {
+                                        onStopDetect();
+                                        setDetectedEmotion(null);
+                                        setConfidence(0);
+                                        setConsecutiveMatches(0);
+                                        setAllExpressions({});
+                                    }}
+                                    className="ml-2 px-3 py-1 rounded-full text-[9px] tracking-wider uppercase border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all font-bold"
+                                >
+                                    Stop
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </motion.div>

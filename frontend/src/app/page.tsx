@@ -4,10 +4,12 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import FaceCamera from '@/components/FaceCamera';
 import YouTubePlayer from '@/components/YouTubePlayer';
+import MoodTimeline, { MoodTimelineEntry, addMoodEntry } from '@/components/MoodTimeline';
+import CameraPage from '@/components/CameraPage';
 import { MoodType, MOOD_CONFIG, RecommendedSong, formatDuration } from '@/lib/types';
 
 // ===== VIEWS =====
-type AppView = 'landing' | 'home' | 'search' | 'playing';
+type AppView = 'landing' | 'home' | 'search' | 'playing' | 'camera' | 'media' | 'timeline';
 
 export default function Home() {
     const [view, setView] = useState<AppView>('landing');
@@ -20,10 +22,27 @@ export default function Home() {
     const [detectedConfidence, setDetectedConfidence] = useState(0);
     const [progress, setProgress] = useState(0);
     const [duration, setDuration] = useState(0);
-    const [activeNav, setActiveNav] = useState<'home' | 'search' | 'media' | 'profile'>('home');
+    const [activeNav, setActiveNav] = useState<'home' | 'search' | 'media' | 'timeline' | 'profile'>('home');
     const [artistFilter, setArtistFilter] = useState('');
     const [isCinemaMode, setIsCinemaMode] = useState(false);
     const [videoRotation, setVideoRotation] = useState(0);
+    const [isDetecting, setIsDetecting] = useState(false);
+    const [moodHistory, setMoodHistory] = useState<MoodTimelineEntry[]>([]);
+    const [landscapeMode, setLandscapeMode] = useState(false);
+
+    // Load mood history from localStorage on mount
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem('mood_timeline');
+            if (stored) {
+                const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+                const entries: MoodTimelineEntry[] = JSON.parse(stored).filter(
+                    (e: MoodTimelineEntry) => new Date(e.timestamp).getTime() > cutoff
+                );
+                setMoodHistory(entries);
+            }
+        } catch { }
+    }, []);
 
     const handleRotateVideo = () => {
         setVideoRotation((prev) => (prev + 90) % 360);
@@ -36,8 +55,8 @@ export default function Home() {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
                 }
-                if (window.screen && window.screen.orientation && window.screen.orientation.lock) {
-                    await window.screen.orientation.lock('landscape').catch(() => { });
+                if (window.screen && window.screen.orientation && (window.screen.orientation as any).lock) {
+                    await (window.screen.orientation as any).lock('landscape').catch(() => { });
                 }
             } catch (e) { console.warn("Fullscreen API block"); }
         } else {
@@ -53,26 +72,42 @@ export default function Home() {
         }
     };
 
+    // Reset home page state on every visit
+    const resetHomeState = () => {
+        setSelectedMood(null);
+        setSongs([]);
+        setCameraActive(false);
+        setIsDetecting(false);
+        setDetectedEmotion(null);
+        setDetectedConfidence(0);
+        setArtistFilter('');
+    };
+
     // Handle mood selection (manual or camera)
     const handleMoodSelect = (mood: MoodType) => {
         setSelectedMood(mood);
         setSongs(getSampleSongs(mood));
+        // Record in mood timeline
+        const updated = addMoodEntry(mood);
+        setMoodHistory(updated);
     };
 
     const handleCameraMood = (mood: MoodType, conf: number) => {
         setDetectedEmotion(MOOD_CONFIG[mood].label);
         setDetectedConfidence(Math.round(conf * 100));
         handleMoodSelect(mood);
+        setIsDetecting(false); // Reset detection state
         setCameraActive(false); // Turn off camera after auto-detect
 
-        // Auto-play the first matching song
+        // Auto-play a RANDOM song from the detected mood's playlist
         const availableSongs = getSampleSongs(mood);
         const filtered = artistFilter.trim()
             ? availableSongs.filter(s => s.artist.toLowerCase().includes(artistFilter.toLowerCase()))
             : availableSongs;
 
         if (filtered.length > 0) {
-            handleSongPlay(filtered[0]);
+            const randomIndex = Math.floor(Math.random() * filtered.length);
+            handleSongPlay(filtered[randomIndex]);
         }
     };
 
@@ -81,6 +116,11 @@ export default function Home() {
         setIsPlaying(true);
         setView('playing');
         setProgress(0);
+
+        // Always load the playlist for the song's mood if not already loaded
+        if (songs.length === 0 && selectedMood) {
+            setSongs(getSampleSongs(selectedMood));
+        }
     };
 
     const handleNext = () => {
@@ -106,7 +146,7 @@ export default function Home() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 50, opacity: 0 }}
                 onClick={() => setView('playing')}
-                className="mx-3 mb-3 p-2 rounded-xl bg-[#2a2a35]/90 backdrop-blur-xl border border-white/5 flex items-center justify-between shadow-2xl cursor-pointer hover:bg-[#323240]/90 transition-colors z-40"
+                className="mx-2 mb-1 p-2 rounded-xl bg-[#2a2a35]/90 backdrop-blur-xl border border-white/5 flex items-center justify-between shadow-2xl cursor-pointer hover:bg-[#323240]/90 transition-colors"
                 style={{ borderBottom: `2px solid ${moodColor}` } as any}
             >
                 {/* Left: Art & Info */}
@@ -149,13 +189,20 @@ export default function Home() {
                     >
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg>
                     </button>
+                    {/* Close (X) button */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setCurrentSong(null); setIsPlaying(false); }}
+                        className="p-1.5 text-white/40 hover:text-red-400 transition-colors ml-1"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                 </div>
             </motion.div>
         );
     };
 
     return (
-        <div className="relative border-x border-white/5 min-h-screen max-w-md mx-auto overflow-hidden text-white" style={{ background: view === 'landing' ? '#1a1025' : '#0a0a0f' }}>
+        <div className="relative border-x border-white/5 min-h-screen max-w-md mx-auto overflow-y-auto text-white" style={{ background: view === 'landing' ? '#1a1025' : '#0a0a0f' }}>
             {/* Background elements (Dynamic Mood Background) */}
             <div className="absolute inset-0 z-0 pointer-events-none transition-colors duration-1000" style={{ backgroundColor: view === 'playing' ? `${moodColor}30` : 'transparent' }}>
                 <div
@@ -282,7 +329,7 @@ export default function Home() {
                                 hitSound.volume = 0.5;
                                 hitSound.play().catch(() => { }); // ignore error if browser blocks autoplay wrapper
 
-                                setView('home');
+                                { resetHomeState(); setView('home'); };
                             }}
                             className="w-full max-w-[280px] bg-purple-600 hover:bg-purple-500 text-white font-bold py-4 rounded-xl shadow-[0_0_30px_rgba(147,51,234,0.4)] transition-colors text-lg tracking-wide"
                         >
@@ -323,17 +370,25 @@ export default function Home() {
                     /* ==================== HOME VIEW ==================== */
                     <motion.div
                         key="home"
-                        className="relative z-10 flex flex-col min-h-screen"
+                        className="relative z-10 flex flex-col min-h-screen pb-28"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0, x: -50 }}
                     >
                         {/* Top bar */}
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                            <div className="w-7 h-7" />
+                            {songs.length > 0 ? (
+                                <button onClick={() => resetHomeState()} className="p-1">
+                                    <svg className="w-6 h-6 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                            ) : (
+                                <div className="w-7 h-7" />
+                            )}
                             <div className="text-center">
                                 <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">
-                                    Mood-Swinger
+                                    {songs.length > 0 ? `${MOOD_CONFIG[selectedMood!]?.label} Playlist` : 'Mood-Swinger'}
                                 </h1>
                                 <div className="w-5 h-0.5 rounded-full mx-auto mt-1" style={{ backgroundColor: moodColor }} />
                             </div>
@@ -344,18 +399,8 @@ export default function Home() {
                             </button>
                         </div>
 
-                        {/* Neural Scan / Camera Section */}
+                        {/* Start Detection / Camera Section */}
                         <div className="px-5 mt-2">
-                            <button
-                                onClick={() => setCameraActive(!cameraActive)}
-                                className="w-full"
-                            >
-                                <p className="text-[10px] tracking-[0.25em] uppercase text-center mb-1"
-                                    style={{ color: cameraActive ? '#00ff88' : moodColor }}>
-                                    {cameraActive ? '● Neural Scan Active' : '○ Tap to Activate Neural Scan'}
-                                </p>
-                            </button>
-
                             {/* Camera area */}
                             <AnimatePresence>
                                 {cameraActive ? (
@@ -368,7 +413,19 @@ export default function Home() {
                                         <FaceCamera
                                             onMoodDetected={handleCameraMood}
                                             isActive={cameraActive}
+                                            isDetecting={isDetecting}
+                                            onStartDetect={() => setIsDetecting(true)}
+                                            onStopDetect={() => setIsDetecting(false)}
                                         />
+                                        {/* Stop Detection Button */}
+                                        <div className="mt-2 mb-2">
+                                            <button
+                                                onClick={() => { setCameraActive(false); setIsDetecting(false); }}
+                                                className="w-full py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 transition-all"
+                                            >
+                                                ⬛ Stop & Close Camera
+                                            </button>
+                                        </div>
                                     </motion.div>
                                 ) : (
                                     <motion.div
@@ -405,6 +462,26 @@ export default function Home() {
                                                 )}
                                             </motion.div>
                                         )}
+
+                                        {/* START DETECTION Button - only show when no playlist is active */}
+                                        {songs.length === 0 && (
+                                            <motion.button
+                                                onClick={() => { setCameraActive(true); setIsDetecting(true); }}
+                                                whileHover={{ scale: 1.02 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                className="mt-6 w-full max-w-[300px] mx-auto py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all flex items-center justify-center gap-3"
+                                                style={{
+                                                    background: `linear-gradient(135deg, ${moodColor} 0%, ${moodColor}CC 100%)`,
+                                                    color: '#000',
+                                                    boxShadow: `0 0 30px ${moodColor}40`,
+                                                }}
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                </svg>
+                                                Start Detection
+                                            </motion.button>
+                                        )}
                                     </motion.div>
                                 )}
                             </AnimatePresence>
@@ -431,6 +508,7 @@ export default function Home() {
                                 ))}
                             </div>
                         </div>
+
 
                         {/* Optional Artist Filter */}
                         <div className="px-5 mt-4">
@@ -518,13 +596,13 @@ export default function Home() {
                         )}
 
                         {/* Bottom Nav */}
-                        <div className="mt-auto w-full flex flex-col relative z-40">
+                        <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto flex flex-col">
                             {renderMiniPlayer()}
                             <BottomNav active={activeNav} onNav={(nav) => {
                                 setActiveNav(nav);
                                 if (nav === 'search') setView('search');
-                                if (nav === 'home') setView('home');
-                                if (nav === 'media') setView('media');
+                                if (nav === 'home') { resetHomeState(); setView('home'); };
+                                if (nav === 'timeline') setView('timeline');
                             }} moodColor={moodColor} />
                         </div>
                     </motion.div>
@@ -534,13 +612,13 @@ export default function Home() {
                     /* ==================== SEARCH VIEW ==================== */
                     <motion.div
                         key="search"
-                        className="relative z-10 flex flex-col min-h-screen"
+                        className="relative z-10 flex flex-col min-h-screen pb-28"
                         initial={{ opacity: 0, x: 50 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -50 }}
                     >
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                            <button onClick={() => { setView('home'); setActiveNav('home'); }} className="p-1">
+                            <button onClick={() => { { resetHomeState(); setView('home'); }; setActiveNav('home'); }} className="p-1">
                                 <svg className="w-6 h-6 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" /></svg>
                             </button>
                             <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">Global Search</h1>
@@ -590,71 +668,107 @@ export default function Home() {
                             </div>
                         </div>
 
-                        <div className="mt-auto w-full flex flex-col relative z-40">
+                        <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto flex flex-col">
                             {renderMiniPlayer()}
                             <BottomNav active="search" onNav={(nav) => {
                                 setActiveNav(nav);
-                                if (nav === 'home') setView('home');
+                                if (nav === 'home') { resetHomeState(); setView('home'); };
                                 if (nav === 'search') setView('search');
-                                if (nav === 'media') setView('media');
+                                if (nav === 'timeline') setView('timeline');
                             }} moodColor="#8b5cf6" />
                         </div>
                     </motion.div>
                 )}
 
-                {view === 'media' && (
-                    /* ==================== MEDIA VIEW (ALL MUSIC) ==================== */
+                {view === 'timeline' && (
+                    /* ==================== MOOD TIMELINE VIEW ==================== */
                     <motion.div
-                        key="media"
-                        className="relative z-10 flex flex-col min-h-screen"
+                        key="timeline"
+                        className="relative z-10 flex flex-col min-h-screen pb-28"
                         initial={{ opacity: 0, x: 50 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -50 }}
                     >
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                            <button onClick={() => { setView('home'); setActiveNav('home'); }} className="p-1">
+                            <button onClick={() => { resetHomeState(); setView('home'); setActiveNav('home'); }} className="p-1">
                                 <svg className="w-6 h-6 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" /></svg>
                             </button>
-                            <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">Available Music</h1>
+                            <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">Mood Timeline</h1>
                             <div className="w-6" />
                         </div>
 
-                        <div className="px-5 mt-4 flex-1 flex flex-col">
-                            <div className="space-y-1 overflow-y-auto pb-24">
-                                {Object.values(['happy', 'sad', 'gym', 'study', 'rock', 'fear'] as MoodType[])
-                                    .flatMap(m => getSampleSongs(m))
-                                    .filter((s, idx, arr) => arr.findIndex(t => t.title === s.title) === idx)
-                                    .map((song) => (
-                                        <motion.button
-                                            key={song.id}
-                                            onClick={() => handleSongPlay(song)}
-                                            className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left group hover:bg-white/[0.05] ${currentSong?.id === song.id ? 'bg-white/[0.06] border border-white/10' : ''}`}
-                                        >
-                                            <div className="w-12 h-12 rounded-lg bg-white/10 overflow-hidden relative flex-shrink-0">
-                                                <img src={song.cover_url || ''} className="w-full h-full object-cover" alt="" />
-                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                                    <svg className="w-5 h-5" fill="white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-                                                </div>
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-semibold truncate text-white">{song.title}</p>
-                                                <p className="text-xs text-white/40 truncate">{song.artist}</p>
-                                            </div>
-                                            <span className="text-xs text-white/20 font-mono flex-shrink-0">
-                                                {formatDuration(song.duration)}
-                                            </span>
-                                        </motion.button>
-                                    ))}
+                        <div className="px-5 mt-4 flex-1 flex flex-col overflow-y-auto pb-24">
+                            {/* Timeline visualization */}
+                            <MoodTimeline entries={moodHistory} moodColor={moodColor} />
+
+                            {/* Detailed mood log list */}
+                            <div className="mt-6">
+                                <h2 className="text-[10px] tracking-[0.3em] uppercase text-white/40 font-bold mb-3">Detailed Log (Last 24 Hours)</h2>
+                                {moodHistory.length === 0 ? (
+                                    <div className="text-center py-10">
+                                        <div className="text-4xl mb-3">📊</div>
+                                        <p className="text-sm text-white/30">No moods logged yet</p>
+                                        <p className="text-xs text-white/15 mt-1">Use Start Detection to detect your mood</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {[...moodHistory]
+                                            .filter(e => new Date(e.timestamp).getTime() > Date.now() - 24 * 60 * 60 * 1000)
+                                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                                            .map((entry, idx) => {
+                                                const time = new Date(entry.timestamp);
+                                                const config = MOOD_CONFIG[entry.mood];
+                                                return (
+                                                    <motion.div
+                                                        key={idx}
+                                                        initial={{ opacity: 0, y: 10 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        transition={{ delay: idx * 0.04 }}
+                                                        className="flex items-center gap-3 p-3 rounded-xl border border-white/5"
+                                                        style={{ backgroundColor: `${entry.color}08` }}
+                                                    >
+                                                        {/* Time */}
+                                                        <div className="flex-shrink-0 text-center w-16">
+                                                            <p className="text-xs font-mono font-bold" style={{ color: entry.color }}>
+                                                                {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                                            </p>
+                                                            <p className="text-[8px] text-white/20 font-mono mt-0.5">
+                                                                {time.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Color bar */}
+                                                        <div className="w-1 h-10 rounded-full" style={{ backgroundColor: entry.color }} />
+
+                                                        {/* Mood info */}
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-lg">{config?.emoji}</span>
+                                                                <span className="text-sm font-bold uppercase tracking-wider" style={{ color: entry.color }}>
+                                                                    {config?.label}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[9px] text-white/20 mt-0.5">{config?.description}</p>
+                                                        </div>
+
+                                                        {/* Color dot */}
+                                                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}60` }} />
+                                                    </motion.div>
+                                                );
+                                            })
+                                        }
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        <div className="mt-auto w-full flex flex-col relative z-40">
+                        <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto flex flex-col">
                             {renderMiniPlayer()}
-                            <BottomNav active="media" onNav={(nav) => {
+                            <BottomNav active="timeline" onNav={(nav) => {
                                 setActiveNav(nav);
-                                if (nav === 'home') setView('home');
+                                if (nav === 'home') { resetHomeState(); setView('home'); };
                                 if (nav === 'search') setView('search');
-                                if (nav === 'media') setView('media');
+                                if (nav === 'timeline') setView('timeline');
                             }} moodColor="#8b5cf6" />
                         </div>
                     </motion.div>
@@ -671,7 +785,7 @@ export default function Home() {
                     >
                         {/* Header */}
                         <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                            <button onClick={() => setView('home')} className="p-1 relative z-30 pointer-events-auto">
+                            <button onClick={() => { resetHomeState(); setView('home'); }} className="p-1 relative z-30 pointer-events-auto">
                                 <svg className="w-6 h-6 text-white/90 drop-shadow-md" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
                                 </svg>
@@ -782,16 +896,41 @@ export default function Home() {
                             </button>
                         </div>
 
-                        {/* Action Buttons (Rotate) */}
-                        <div className="px-6 flex justify-center mt-8 mb-4">
+                        {/* Action Buttons (Rotate + Landscape + Playlist) */}
+                        <div className="px-6 flex justify-center gap-3 mt-8 mb-4">
                             <button
                                 onClick={handleRotateVideo}
-                                className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 px-6 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
+                                className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
                                 style={{ boxShadow: `0 0 20px ${moodColor}20` }}
                             >
                                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                <span className="font-bold text-xs uppercase tracking-widest text-white">Rotate Video</span>
+                                <span className="font-bold text-xs uppercase tracking-widest text-white">Rotate</span>
                             </button>
+                            {currentSong?.youtube_id && (
+                                <button
+                                    onClick={() => setLandscapeMode(true)}
+                                    className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
+                                    style={{ boxShadow: `0 0 20px ${moodColor}20` }}
+                                >
+                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                    <span className="font-bold text-xs uppercase tracking-widest text-white">Landscape</span>
+                                </button>
+                            )}
+                            {/* Playlist Button */}
+                            {selectedMood && (
+                                <button
+                                    onClick={() => { setView('home'); setActiveNav('home'); }}
+                                    className="flex items-center justify-center gap-2 border border-white/20 px-4 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
+                                    style={{ background: `${moodColor}30`, boxShadow: `0 0 20px ${moodColor}30` }}
+                                >
+                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                                    </svg>
+                                    <span className="font-bold text-xs uppercase tracking-widest text-white">Playlist</span>
+                                </button>
+                            )}
                         </div>
 
                         {/* Disposition Selector */}
@@ -813,18 +952,44 @@ export default function Home() {
                         </div>
 
                         {/* Bottom Nav */}
-                        <div className="mt-auto w-full flex flex-col relative z-40">
+                        <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto flex flex-col">
                             {renderMiniPlayer()}
                             <BottomNav active={activeNav} onNav={(nav) => {
                                 setActiveNav(nav);
-                                if (nav === 'home') setView('home');
+                                if (nav === 'home') { resetHomeState(); setView('home'); };
                                 if (nav === 'search') setView('search');
-                                if (nav === 'media') setView('media');
+                                if (nav === 'timeline') setView('timeline');
                             }} moodColor={moodColor} />
                         </div>
                     </motion.div>
                 )}
+
+                {view === 'camera' && (
+                    /* ==================== CAMERA VIEW ==================== */
+                    <CameraPage
+                        onBack={() => { { resetHomeState(); setView('home'); }; setActiveNav('home'); }}
+                        moodColor={moodColor}
+                    />
+                )}
             </AnimatePresence>
+
+            {/* Landscape Video Overlay */}
+            {landscapeMode && currentSong?.youtube_id && (
+                <div className="landscape-video-overlay">
+                    <button
+                        onClick={() => setLandscapeMode(false)}
+                        className="landscape-close-btn"
+                    >
+                        ✕
+                    </button>
+                    <iframe
+                        src={`https://www.youtube.com/embed/${currentSong.youtube_id}?autoplay=1&controls=1&modestbranding=1&rel=0`}
+                        allow="autoplay; encrypted-media; fullscreen"
+                        allowFullScreen
+                        title="YouTube Landscape Player"
+                    />
+                </div>
+            )}
         </div>
     );
 }
@@ -832,7 +997,7 @@ export default function Home() {
 // ===== BOTTOM NAVIGATION =====
 function BottomNav({ active, onNav, moodColor }: {
     active: string;
-    onNav: (nav: 'home' | 'search' | 'media') => void;
+    onNav: (nav: 'home' | 'search' | 'timeline') => void;
     moodColor: string;
 }) {
     const items = [
@@ -851,17 +1016,17 @@ function BottomNav({ active, onNav, moodColor }: {
             )
         },
         {
-            id: 'media' as const, icon: (
+            id: 'timeline' as const, icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             )
         },
     ];
 
     return (
-        <div className="sticky bottom-0 mt-auto backdrop-blur-xl border-t border-white/5"
-            style={{ background: 'rgba(10,10,15,0.9)' }}>
+        <div className="backdrop-blur-xl border-t border-white/5"
+            style={{ background: 'rgba(10,10,15,0.95)' }}>
             <div className="flex items-center justify-around py-3">
                 {items.map(item => (
                     <button key={item.id} onClick={() => onNav(item.id)}

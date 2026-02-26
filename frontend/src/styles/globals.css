@@ -28,6 +28,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground font-sans;
     -webkit-font-smoothing: antialiased;
@@ -39,13 +40,16 @@
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: hsl(0 0% 7%);
 }
+
 ::-webkit-scrollbar-thumb {
   background: hsl(0 0% 20%);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(0 0% 30%);
 }
@@ -53,38 +57,38 @@
 /* Mood Backgrounds */
 .mood-bg-happy {
   background: radial-gradient(ellipse at 30% 20%, rgba(255, 215, 0, 0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(255, 140, 0, 0.1) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(255, 140, 0, 0.1) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 .mood-bg-sad {
   background: radial-gradient(ellipse at 30% 20%, rgba(65, 105, 225, 0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(75, 0, 130, 0.1) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(75, 0, 130, 0.1) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 .mood-bg-gym {
   background: radial-gradient(ellipse at 30% 20%, rgba(255, 69, 0, 0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(255, 99, 71, 0.1) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(255, 99, 71, 0.1) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 .mood-bg-study {
   background: radial-gradient(ellipse at 30% 20%, rgba(46, 139, 87, 0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(0, 128, 128, 0.1) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(0, 128, 128, 0.1) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 .mood-bg-rock {
   background: radial-gradient(ellipse at 30% 20%, rgba(220, 20, 60, 0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(139, 0, 0, 0.1) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(139, 0, 0, 0.1) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 .mood-bg-fear {
   background: radial-gradient(ellipse at 30% 20%, rgba(75, 0, 130, 0.2) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 80%, rgba(25, 0, 50, 0.15) 0%, transparent 50%),
-              hsl(0 0% 3%);
+    radial-gradient(ellipse at 70% 80%, rgba(25, 0, 50, 0.15) 0%, transparent 50%),
+    hsl(0 0% 3%);
 }
 
 /* Glassmorphism card */
@@ -101,12 +105,29 @@
 }
 
 /* Glow effects */
-.glow-happy { box-shadow: 0 0 40px rgba(255, 215, 0, 0.3); }
-.glow-sad { box-shadow: 0 0 40px rgba(65, 105, 225, 0.3); }
-.glow-gym { box-shadow: 0 0 40px rgba(255, 69, 0, 0.3); }
-.glow-study { box-shadow: 0 0 40px rgba(46, 139, 87, 0.3); }
-.glow-rock { box-shadow: 0 0 40px rgba(220, 20, 60, 0.3); }
-.glow-fear { box-shadow: 0 0 40px rgba(75, 0, 130, 0.3); }
+.glow-happy {
+  box-shadow: 0 0 40px rgba(255, 215, 0, 0.3);
+}
+
+.glow-sad {
+  box-shadow: 0 0 40px rgba(65, 105, 225, 0.3);
+}
+
+.glow-gym {
+  box-shadow: 0 0 40px rgba(255, 69, 0, 0.3);
+}
+
+.glow-study {
+  box-shadow: 0 0 40px rgba(46, 139, 87, 0.3);
+}
+
+.glow-rock {
+  box-shadow: 0 0 40px rgba(220, 20, 60, 0.3);
+}
+
+.glow-fear {
+  box-shadow: 0 0 40px rgba(75, 0, 130, 0.3);
+}
 
 /* Text gradient */
 .text-gradient {
@@ -131,24 +152,33 @@
 
 /* Animated border gradient */
 @keyframes border-rotate {
-  0% { --angle: 0deg; }
-  100% { --angle: 360deg; }
+  0% {
+    --angle: 0deg;
+  }
+
+  100% {
+    --angle: 360deg;
+  }
 }
 
 /* Shimmer loading */
 .shimmer {
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.03) 0%,
-    rgba(255,255,255,0.08) 50%,
-    rgba(255,255,255,0.03) 100%
-  );
+      rgba(255, 255, 255, 0.03) 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.03) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* Progress bar */
@@ -175,4 +205,46 @@ input[type="range"]::-webkit-slider-thumb {
 
 input[type="range"]:hover::-webkit-slider-thumb {
   opacity: 1;
+}
+
+/* Landscape video overlay */
+.landscape-video-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landscape-video-overlay iframe {
+  width: 100vw;
+  height: 100vh;
+  border: none;
+}
+
+.landscape-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.landscape-close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
 }

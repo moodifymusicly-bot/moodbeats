@@ -1,0 +1,12 @@
+# Exclude generated folders and large files
+node_modules/
+.next/
+dist/
+*.log
+*.tmp
+Thumbs.db
+.DS_Store
+
+__pycache__/
+*.pyc
+.env
