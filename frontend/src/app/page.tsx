@@ -226,24 +226,59 @@ export default function Home() {
                     className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto transition-all duration-1000 ${isCinemaMode ? 'w-full h-[100vw] sm:h-full max-w-none bg-black' : 'w-[300vh] h-[300vh] max-w-none max-h-none'}`}
                     style={{ transform: `translate(-50%, -50%) rotate(${videoRotation}deg)` }}
                 >
+                    {/* Native fallback audio player for reliable background music */}
+                    {currentSong?.audio_url && !currentSong?.youtube_id && (
+                        <audio
+                            ref={(audio) => {
+                                if (audio) {
+                                    audio.volume = 0.8;
+                                    if (isPlaying) {
+                                        audio.play().catch(() => { });
+                                    } else {
+                                        audio.pause();
+                                    }
+
+                                    // Let native audio drive the progress bar if we have a direct url
+                                    audio.ontimeupdate = () => {
+                                        setProgress(Math.floor(audio.currentTime));
+                                        if (audio.duration) setDuration(Math.floor(audio.duration));
+                                    };
+                                    audio.onended = () => handleNext();
+                                }
+                            }}
+                            src={currentSong.audio_url}
+                            loop={false}
+                            className="hidden"
+                        />
+                    )}
+
                     {currentSong?.youtube_id && (
                         <YouTubePlayer
                             videoId={currentSong.youtube_id}
                             isPlaying={isPlaying}
                             width="100%"
                             height="100%"
-                            className={`w-full h-full ${isCinemaMode ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                            className={`w-full h-full transition-opacity duration-300 ${isPlaying ? 'opacity-100' : 'opacity-0'} ${isCinemaMode ? 'pointer-events-auto' : 'pointer-events-none'}`}
                             onStateChange={(state) => {
-                                if (state === 'ended') handleNext();
-                                else if (state === 'playing') setIsPlaying(true);
-                                else if (state === 'paused') setIsPlaying(false);
+                                // Don't let youtube end events loop if native audio is driving
+                                if (!currentSong?.audio_url) {
+                                    if (state === 'ended') handleNext();
+                                    else if (state === 'playing') setIsPlaying(true);
+                                    else if (state === 'paused') setIsPlaying(false);
+                                }
                             }}
-                            onProgress={(cur, dur) => { setProgress(Math.floor(cur)); setDuration(Math.floor(dur)); }}
+                            onProgress={(cur, dur) => {
+                                // Only track youtube progress if native audio isn't 
+                                if (!currentSong?.audio_url) {
+                                    setProgress(Math.floor(cur));
+                                    setDuration(Math.floor(dur));
+                                }
+                            }}
                             onReady={() => { }}
                         />
                     )}
-                    {!currentSong?.youtube_id && currentSong?.cover_url && (
-                        <img src={currentSong.cover_url} alt="" className="w-full h-full object-cover blur-xl" />
+                    {(!isPlaying || !currentSong?.youtube_id) && currentSong?.cover_url && (
+                        <img src={currentSong.cover_url} alt="" className="w-full h-full object-cover blur-xl transition-opacity duration-500" />
                     )}
                 </div>
 
@@ -778,7 +813,7 @@ export default function Home() {
                     /* ==================== NOW PLAYING VIEW ==================== */
                     <motion.div
                         key="playing"
-                        className={`relative z-10 flex flex-col min-h-screen transition-opacity duration-700 ${isCinemaMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                        className={`relative z-10 flex flex-col h-screen overflow-hidden pb-24 transition-opacity duration-700 ${isCinemaMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                         initial={{ opacity: 0, x: 50 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 50 }}
@@ -803,34 +838,30 @@ export default function Home() {
                             </button>
                         </div>
 
-                        {/* LIVE Badge (moved from video container) */}
-                        {currentSong?.youtube_id && (
-                            <div className="absolute top-16 right-5 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-600/90 text-white backdrop-blur shadow-xl border border-red-500/50 z-30">
-                                <span className="w-2 h-2 rounded-full bg-white animate-pulse shadow-[0_0_10px_white]" />
-                                <span className="text-[10px] font-black tracking-widest uppercase drop-shadow">LIVE</span>
-                            </div>
-                        )}
+
 
                         {/* Album Art (Transparent Placeholder since global layer handles video) */}
                         <div className={`flex-1 flex items-center justify-center px-10 py-4 ${currentSong?.youtube_id ? 'opacity-0' : ''}`}>
                             <div className="w-full aspect-square max-w-[300px]" />
                         </div>
 
-                        {/* Song Info */}
+                        {/* Song Info & Watch on YouTube Button */}
                         {currentSong && (
-                            <div className="px-8">
+                            <div className="px-8 flex flex-col items-center relative z-20">
+
+
                                 <motion.h2 key={currentSong.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                                    className="font-display text-xl sm:text-2xl font-black tracking-tight uppercase text-center">
+                                    className="font-display text-xl sm:text-2xl font-black tracking-tight uppercase text-center drop-shadow-lg relative z-20">
                                     {currentSong.title}
                                 </motion.h2>
-                                <p className="text-center text-white/30 text-xs tracking-[0.2em] uppercase mt-1">
+                                <p className="text-center text-white/80 text-xs tracking-[0.2em] uppercase mt-1 drop-shadow-md relative z-20 font-semibold">
                                     {currentSong.artist} // {currentSong.album}
                                 </p>
                             </div>
                         )}
 
                         {/* Progress Bar */}
-                        <div className="px-8 mt-5">
+                        <div className="px-8 mt-4">
                             <div className="relative h-[3px] bg-white/10 rounded-full overflow-hidden">
                                 <div className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
                                     style={{
@@ -850,7 +881,7 @@ export default function Home() {
                         </div>
 
                         {/* Playback Controls */}
-                        <div className="flex items-center justify-center gap-8 mt-6">
+                        <div className="flex items-center justify-center gap-8 mt-4">
                             <button className="p-2 text-white/30 hover:text-white/60 transition-colors">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -896,27 +927,28 @@ export default function Home() {
                             </button>
                         </div>
 
-                        {/* Action Buttons (Rotate + Landscape + Playlist) */}
-                        <div className="px-6 flex justify-center gap-3 mt-8 mb-4">
-                            <button
-                                onClick={handleRotateVideo}
-                                className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
-                                style={{ boxShadow: `0 0 20px ${moodColor}20` }}
-                            >
-                                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                <span className="font-bold text-xs uppercase tracking-widest text-white">Rotate</span>
-                            </button>
+                        {/* Action Buttons (Repositioned Watch on YouTube + Playlist) */}
+                        <div className="px-6 flex justify-center gap-3 mt-3 mb-1">
+                            {/* Watch on YouTube Button */}
                             {currentSong?.youtube_id && (
-                                <button
-                                    onClick={() => setLandscapeMode(true)}
-                                    className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2.5 rounded-full backdrop-blur-md transition-all active:scale-95"
-                                    style={{ boxShadow: `0 0 20px ${moodColor}20` }}
+                                <motion.a
+                                    href={`https://www.youtube.com/watch?v=${currentSong.youtube_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-6 py-2.5 rounded-full border border-white/20 backdrop-blur-md flex items-center gap-2 shadow-lg transition-colors hover:bg-red-500"
+                                    style={{
+                                        backgroundColor: '#ef4444',
+                                        boxShadow: `0 0 20px rgba(239, 68, 68, 0.4)`
+                                    }}
+                                    animate={{
+                                        boxShadow: [`0 0 10px rgba(239, 68, 68, 0.4)`, `0 0 25px rgba(239, 68, 68, 0.8)`, `0 0 10px rgba(239, 68, 68, 0.4)`]
+                                    }}
+                                    transition={{ duration: 2, repeat: Infinity }}
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
                                 >
-                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                    </svg>
-                                    <span className="font-bold text-xs uppercase tracking-widest text-white">Landscape</span>
-                                </button>
+                                    <span className="text-xs font-bold text-white uppercase tracking-widest drop-shadow-md">Watch on YouTube</span>
+                                </motion.a>
                             )}
                             {/* Playlist Button */}
                             {selectedMood && (
@@ -934,7 +966,7 @@ export default function Home() {
                         </div>
 
                         {/* Disposition Selector */}
-                        <div className="px-8 mt-6 mb-4">
+                        <div className="px-8 mt-4 mb-2">
                             <p className="text-center text-[9px] tracking-[0.35em] uppercase text-white/20 mb-3">
                                 Select Disposition
                             </p>
@@ -1059,27 +1091,27 @@ function getSubMoods(mood: MoodType): string[] {
 function getSampleSongs(mood: MoodType): RecommendedSong[] {
     const sampleData: Record<MoodType, { title: string; artist: string; album: string; ytId: string }[]> = {
         happy: [
-            { title: 'Happy', artist: 'Pharrell Williams', album: 'G I R L', ytId: 'ZbZSe6N_BXs' },
-            { title: "Don't Stop Me Now", artist: 'Queen', album: 'Jazz', ytId: 'HgzGwKwLmgM' },
-            { title: 'Uptown Funk', artist: 'Bruno Mars', album: 'Uptown Special', ytId: 'OPf0YbXqDm0' },
-            { title: 'Shake It Off', artist: 'Taylor Swift', album: '1989', ytId: 'nfWlot6h_JM' },
-            { title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', album: 'Trolls', ytId: 'ru0K8uYEZWw' },
+            { title: 'Happy', artist: 'Pharrell Williams', album: 'G I R L', ytId: 'MOWDb2TBYDg' }, // Lyric video
+            { title: "Don't Stop Me Now", artist: 'Queen', album: 'Jazz', ytId: 'p1m1AIL3d_A' }, // Lyric video
+            { title: 'Uptown Funk', artist: 'Bruno Mars', album: 'Uptown Special', ytId: '0EqSXDwTq6U' }, // Audio
+            { title: 'Shake It Off', artist: 'Taylor Swift', album: '1989', ytId: '8xg3vE8Ie_E' }, // Audio
+            { title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', album: 'Trolls', ytId: 'p5RobDomh5U' }, // Audio
             { title: 'Levitating', artist: 'Dua Lipa', album: 'Future Nostalgia', ytId: 'TUVcZfQe-Kw' },
-            { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', ytId: '4NRXx6U8ABQ' },
+            { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', ytId: 'fHI8X4OXluQ' }, // Audio
             { title: 'Dynamite', artist: 'BTS', album: 'BE', ytId: 'gdZLi9oWNZg' },
-            { title: 'Watermelon Sugar', artist: 'Harry Styles', album: 'Fine Line', ytId: 'E07s5ZYadZs' },
+            { title: 'Watermelon Sugar', artist: 'Harry Styles', album: 'Fine Line', ytId: '7-x3uD5z1bQ' }, // Audio
             { title: '24K Magic', artist: 'Bruno Mars', album: '24K Magic', ytId: 'UqyT8IEBkvY' },
             { title: 'Good as Hell', artist: 'Lizzo', album: 'Cuz I Love You', ytId: 'SmbmeOgWsqE' },
             { title: 'Walking on Sunshine', artist: 'Katrina & the Waves', album: 'Walking on Sunshine', ytId: 'iPUmE-tne5U' },
         ],
         sad: [
-            { title: 'Someone Like You', artist: 'Adele', album: '21', ytId: 'hLQl3WQQoQ0' },
+            { title: 'Someone Like You', artist: 'Adele', album: '21', ytId: 'njmCUJ94lqw' }, // Audio
             { title: 'Fix You', artist: 'Coldplay', album: 'X&Y', ytId: 'k4V3Mo61fJM' },
-            { title: 'The Night We Met', artist: 'Lord Huron', album: 'Strange Trails', ytId: 'KtlgYxa6BMU' },
-            { title: 'Skinny Love', artist: 'Bon Iver', album: 'For Emma Forever Ago', ytId: 'ssdgFoHLwnk' },
+            { title: 'The Night We Met', artist: 'Lord Huron', album: 'Strange Trails', ytId: 'wGF7PswOENQ' }, // Lyric
+            { title: 'Skinny Love', artist: 'Bon Iver', album: 'For Emma Forever Ago', ytId: 'aP2Jk7b5Fm4' }, // Audio
             { title: 'Creep', artist: 'Radiohead', album: 'Pablo Honey', ytId: 'XFkzRNyygfk' },
             { title: 'Hallelujah', artist: 'Jeff Buckley', album: 'Grace', ytId: 'y8AWFf7EAc4' },
-            { title: 'Let Her Go', artist: 'Passenger', album: 'All the Little Lights', ytId: 'RBumgq5yVrA' },
+            { title: 'Let Her Go', artist: 'Passenger', album: 'All the Little Lights', ytId: '16bJqA6nnsM' }, // Audio
             { title: 'drivers license', artist: 'Olivia Rodrigo', album: 'SOUR', ytId: 'ZmDBbnmKFnI' },
             { title: 'Space Song', artist: 'Beach House', album: 'Depression Cherry', ytId: 'f9X1C7pTu-M' },
             { title: 'Numb', artist: 'Linkin Park', album: 'Meteora', ytId: 'kXYiU_JCYtU' },
@@ -1144,25 +1176,37 @@ function getSampleSongs(mood: MoodType): RecommendedSong[] {
         ],
     };
 
-    return (sampleData[mood] || []).map((s, i) => ({
-        id: `sample-${mood}-${i}`,
-        title: s.title,
-        artist: s.artist,
-        album: s.album,
-        genre: mood,
-        mood_tag: mood,
-        duration: 180 + Math.floor(Math.random() * 120),
-        cover_url: `https://picsum.photos/seed/${s.title.replace(/\s+/g, '-').toLowerCase()}/300/300`,
-        audio_url: null,
-        preview_url: null,
-        youtube_id: s.ytId,
-        valence: Math.random(),
-        energy: Math.random(),
-        danceability: Math.random(),
-        popularity: 60 + Math.floor(Math.random() * 40),
-        release_date: null,
-        score: 0.95 - i * 0.03,
-        mood_match: 0.9 - i * 0.02,
-        user_similarity: 0.8 - i * 0.02,
-    }));
+    return (sampleData[mood] || []).map((s, i) => {
+        // Use a list of reliable royalty-free music URLs as placeholders 
+        // since we know the YouTube iframes will be blocked on IP
+        const safeAudioUrls = [
+            'https://cdn.pixabay.com/audio/2022/03/15/audio_7ce17a3a60.mp3', // Generic lo-fi
+            'https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3', // Electronic
+            'https://cdn.pixabay.com/audio/2022/10/25/audio_34b3dc04c2.mp3', // Relaxing
+            'https://cdn.pixabay.com/audio/2021/11/25/audio_91b3cb4bdc.mp3', // Rock
+        ];
+        const audioUrl = safeAudioUrls[i % safeAudioUrls.length];
+
+        return {
+            id: `sample-${mood}-${i}`,
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            genre: mood,
+            mood_tag: mood,
+            duration: 180 + Math.floor(Math.random() * 120),
+            cover_url: `https://picsum.photos/seed/${s.title.replace(/\s+/g, '-').toLowerCase()}/300/300`,
+            audio_url: audioUrl,
+            preview_url: null,
+            youtube_id: s.ytId,
+            valence: Math.random(),
+            energy: Math.random(),
+            danceability: Math.random(),
+            popularity: 60 + Math.floor(Math.random() * 40),
+            release_date: null,
+            score: 0.95 - i * 0.03,
+            mood_match: 0.9 - i * 0.02,
+            user_similarity: 0.8 - i * 0.02,
+        };
+    });
 }
