@@ -6,7 +6,7 @@ from app.database import get_db
 from app.config import get_settings
 from app.schemas.recommendation import RecommendationResponse, RecommendedSong
 from app.services.recommendation_service import get_recommendations
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user_optional
 from app.models.user import User
 
 settings = get_settings()
@@ -17,14 +17,15 @@ router = APIRouter(prefix="/api/recommendations", tags=["Recommendations"])
 async def recommend(
     mood: str = Query(..., description="Mood to get recommendations for"),
     limit: int = Query(20, ge=1, le=50),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     if mood not in settings.MOODS:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Invalid mood: {mood}")
 
-    results = await get_recommendations(db, mood, current_user.id, limit)
+    user_id = current_user.id if current_user else None
+    results = await get_recommendations(db, mood, user_id, limit)
 
     songs = [
         RecommendedSong(

@@ -57,7 +57,7 @@ export interface MoodHistoryEntry {
     timestamp: string;
 }
 
-export type MoodType = 'happy' | 'sad' | 'gym' | 'study' | 'rock' | 'fear';
+export type MoodType = 'happy' | 'sad' | 'gym' | 'study' | 'rock';
 
 export const MOOD_CONFIG: Record<MoodType, {
     emoji: string;
@@ -118,16 +118,6 @@ export const MOOD_CONFIG: Record<MoodType, {
         glowClass: 'glow-rock',
         icon: '⚡',
         description: 'Classic & modern rock, guitar-driven',
-    },
-    fear: {
-        emoji: '😨',
-        label: 'Fear',
-        color: '#4B0082',
-        gradient: 'from-purple-900 to-violet-600',
-        bgClass: 'mood-bg-fear',
-        glowClass: 'glow-fear',
-        icon: '👻',
-        description: 'Dark, eerie, suspenseful, cinematic',
     },
 };
 

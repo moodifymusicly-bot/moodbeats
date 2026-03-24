@@ -14,6 +14,7 @@ from app.models.user import User
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
@@ -50,6 +51,25 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if not credentials:
+        return None
+    try:
+        payload = jwt.decode(
+            credentials.credentials, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        return result.scalar_one_or_none()
+    except (JWTError, Exception):
+        return None
 
 
 async def register_user(

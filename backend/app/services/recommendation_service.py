@@ -1,5 +1,4 @@
 import uuid
-import json
 import numpy as np
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +26,6 @@ MOOD_PROFILES = {
     "gym": {"valence": 0.6, "energy": 0.95, "danceability": 0.8},
     "study": {"valence": 0.4, "energy": 0.2, "danceability": 0.2},
     "rock": {"valence": 0.5, "energy": 0.85, "danceability": 0.6},
-    "fear": {"valence": 0.15, "energy": 0.7, "danceability": 0.35},
 }
 
 # Scoring weights
@@ -69,13 +67,12 @@ def compute_freshness_score(song: Song) -> float:
 async def get_recommendations(
     db: AsyncSession,
     mood: str,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     limit: int = 20,
     exclude_ids: list[uuid.UUID] = None,
 ) -> list[dict]:
     """Get mood-based recommendations with hybrid scoring."""
 
-    # Fetch candidate songs
     query = select(Song)
     if exclude_ids:
         query = query.where(Song.id.notin_(exclude_ids))
@@ -86,19 +83,28 @@ async def get_recommendations(
     if not all_songs:
         return []
 
-    # Get user's interaction history for similarity scoring
-    interaction_result = await db.execute(
-        select(Interaction)
-        .where(Interaction.user_id == user_id)
-        .order_by(desc(Interaction.timestamp))
-        .limit(50)
-    )
-    user_interactions = interaction_result.scalars().all()
-    liked_song_ids = {
-        i.song_id
-        for i in user_interactions
-        if i.interaction_type in ("like", "save", "play")
-    }
+    liked_song_ids: set[uuid.UUID] = set()
+    liked_genres: list[str] = []
+    if user_id:
+        interaction_result = await db.execute(
+            select(Interaction)
+            .where(Interaction.user_id == user_id)
+            .order_by(desc(Interaction.timestamp))
+            .limit(50)
+        )
+        user_interactions = interaction_result.scalars().all()
+        liked_song_ids = {
+            i.song_id
+            for i in user_interactions
+            if i.interaction_type in ("like", "save", "play")
+        }
+
+        if liked_song_ids:
+            liked_songs_result = await db.execute(
+                select(Song).where(Song.id.in_(liked_song_ids))
+            )
+            liked_songs = liked_songs_result.scalars().all()
+            liked_genres = [ls.genre for ls in liked_songs]
 
     # Score each song
     scored_songs = []
@@ -107,16 +113,10 @@ async def get_recommendations(
         popularity_score = compute_popularity_score(song)
         freshness_score = compute_freshness_score(song)
 
-        # Simple collaborative signal: boost songs in same genre as liked songs
         user_sim = 0.5
-        if liked_song_ids:
-            # Check if song shares mood_tag with liked songs
-            liked_songs_result = await db.execute(
-                select(Song).where(Song.id.in_(liked_song_ids))
-            )
-            liked_songs = liked_songs_result.scalars().all()
-            matching_genres = sum(1 for ls in liked_songs if ls.genre == song.genre)
-            user_sim = min(1.0, 0.3 + 0.7 * matching_genres / max(len(liked_songs), 1))
+        if liked_genres:
+            matching_genres = sum(1 for g in liked_genres if g == song.genre)
+            user_sim = min(1.0, 0.3 + 0.7 * matching_genres / max(len(liked_genres), 1))
 
         # Hybrid score
         final_score = (

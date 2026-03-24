@@ -1,4 +1,4 @@
-# 🎵 MoodMusic — AI-Powered Music Recommendation
+# 🎵 MoodBeats — AI-Powered Music Recommendation
 
 A Spotify-level mood-based music recommendation web app powered by deep learning hybrid recommendations.
 
@@ -44,7 +44,7 @@ Then start frontend in another terminal.
 
 ## Features
 
-- 🧠 **6 Mood Modes**: Happy, Sad, Gym, Study, Rock, Fear
+- 🧠 **6 Mood Modes**: Happy, Sad, Gym, Study, Rock, 
 - 🎯 **Hybrid Recommender**: α*MoodMatch + β*UserSimilarity + γ*Popularity + δ*Freshness
 - 🔥 **PyTorch ML Pipeline**: Transformer user encoder + song embeddings + FAISS search
 - 🎨 **Premium Dark UI**: Glassmorphism, mood-adaptive gradients, Framer Motion animations

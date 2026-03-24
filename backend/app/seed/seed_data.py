@@ -217,47 +217,6 @@ def get_seed_songs() -> list[dict]:
         songs.append(_make_song(title, artist, album, genre, "rock",
                                 valence=(0.3, 0.65), energy=(0.7, 0.98), dance=(0.35, 0.65)))
 
-    # --- FEAR songs ---
-    fear_songs = [
-        ("Thriller", "Michael Jackson", "Thriller", "pop"),
-        ("Duel of the Fates", "John Williams", "Star Wars: TPM", "classical"),
-        ("O Fortuna", "Carl Orff", "Carmina Burana", "classical"),
-        ("Baba Yaga", "Penderecki", "De Natura Sonoris", "classical"),
-        ("Hide and Seek", "Imogen Heap", "Speak for Yourself", "electronic"),
-        ("In the Hall of the Mountain King", "Edvard Grieg", "Peer Gynt", "classical"),
-        ("Toccata and Fugue in D Minor", "J.S. Bach", "Organ Works", "classical"),
-        ("Tubular Bells", "Mike Oldfield", "Tubular Bells", "progressive"),
-        ("A Forest", "The Cure", "Seventeen Seconds", "post-punk"),
-        ("Closer", "Nine Inch Nails", "The Downward Spiral", "industrial"),
-        ("Supermassive Black Hole", "Muse", "Black Holes and Revelations", "rock"),
-        ("No Surprises", "Radiohead", "OK Computer", "alt-rock"),
-        ("Climbing Up the Walls", "Radiohead", "OK Computer", "alt-rock"),
-        ("Heart-Shaped Box", "Nirvana", "In Utero", "grunge"),
-        ("The Beautiful People", "Marilyn Manson", "Antichrist Superstar", "industrial"),
-        ("Lacrimosa", "Mozart", "Requiem", "classical"),
-        ("Dies Irae", "Verdi", "Requiem", "classical"),
-        ("Lavender Town Theme", "Junichi Masuda", "Pokémon RBY", "game"),
-        ("Come Play with Me", "Extreme Music", "Horror Trailers Vol. 1", "cinematic"),
-        ("The Exorcist Theme", "Mike Oldfield", "Tubular Bells", "progressive"),
-        ("It Follows Soundtrack", "Disasterpeace", "It Follows", "synth"),
-        ("Hellraiser Main Theme", "Christopher Young", "Hellraiser OST", "classical"),
-        ("28 Days Later Theme", "John Murphy", "28 Days Later OST", "post-rock"),
-        ("Anxiety", "blackbear", "mansionz", "hip-hop"),
-        ("Bury a Friend", "Billie Eilish", "WHEN WE ALL FALL ASLEEP", "pop"),
-        ("Sweet Dreams", "Eurythmics", "Sweet Dreams", "synth-pop"),
-        ("Psycho", "Post Malone ft. Ty Dolla $ign", "beerbongs & bentleys", "hip-hop"),
-        ("Monster", "Kanye West", "MBDTF", "hip-hop"),
-        ("Nightmare", "Avenged Sevenfold", "Nightmare", "metal"),
-        ("Welcome Home", "Coheed and Cambria", "Good Apollo I'm Burning Star IV", "prog-rock"),
-        ("Requiem for a Dream", "Clint Mansell", "Requiem for a Dream", "classical"),
-        ("Dance Macabre", "Camille Saint-Saëns", "Danse Macabre", "classical"),
-        ("Night on Bald Mountain", "Mussorgsky", "Pictures at an Exhibition", "classical"),
-    ]
-
-    for title, artist, album, genre in fear_songs:
-        songs.append(_make_song(title, artist, album, genre, "fear",
-                                valence=(0.05, 0.25), energy=(0.5, 0.85), dance=(0.2, 0.5)))
-
     return songs
 
 
@@ -360,7 +319,7 @@ async def seed_database(db):
         db.add(interaction)
 
     # Add some mood history
-    moods = ["happy", "sad", "gym", "study", "rock", "fear"]
+    moods = ["happy", "sad", "gym", "study", "rock"]
     for mood in moods:
         entry = MoodHistory(
             user_id=demo_user.id,

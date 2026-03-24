@@ -7,7 +7,7 @@ interface MoodSelectorProps {
     onSelect: (mood: MoodType) => void;
 }
 
-const moods: MoodType[] = ['happy', 'sad', 'gym', 'study', 'rock', 'fear'];
+const moods: MoodType[] = ['happy', 'sad', 'gym', 'study', 'rock'];
 
 export default function MoodSelector({ onSelect }: MoodSelectorProps) {
     return (

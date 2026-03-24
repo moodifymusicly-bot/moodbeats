@@ -8,6 +8,8 @@ export interface MoodTimelineEntry {
     mood: MoodType;
     timestamp: string; // ISO string
     color: string;
+    source?: 'camera' | 'manual';
+    confidence?: number;
 }
 
 const STORAGE_KEY = 'mood_timeline';
@@ -33,12 +35,18 @@ function saveTimeline(entries: MoodTimelineEntry[]) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
 }
 
-export function addMoodEntry(mood: MoodType): MoodTimelineEntry[] {
+export function addMoodEntry(
+    mood: MoodType,
+    source: 'camera' | 'manual' = 'manual',
+    confidence: number = 1.0,
+): MoodTimelineEntry[] {
     const entries = loadTimeline();
     const newEntry: MoodTimelineEntry = {
         mood,
         timestamp: new Date().toISOString(),
         color: MOOD_CONFIG[mood].color,
+        source,
+        confidence,
     };
     entries.push(newEntry);
     saveTimeline(entries);

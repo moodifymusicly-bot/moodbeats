@@ -60,9 +60,13 @@ export default function YouTubePlayer({
     className = 'hidden',
 }: YouTubePlayerProps) {
     const progressRef = useRef<NodeJS.Timeout | null>(null);
+    const [iframeKey, setIframeKey] = useState(0);
 
-    // Simple iframe approach avoids the strict origin checks of the YT JS API
-    // which block VEVO videos on raw IP addresses.
+    // Re-key iframe when videoId changes to force reload
+    useEffect(() => {
+        setIframeKey(k => k + 1);
+    }, [videoId]);
+
     useEffect(() => {
         onReady();
         if (isPlaying) {
@@ -87,12 +91,13 @@ export default function YouTubePlayer({
         };
     }, [isPlaying, videoId]);
 
-    // Construct the URL with autoplay and modest branding
-    const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=${isPlaying ? 1 : 0}&controls=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=0&widgetid=1`;
+    // Construct the URL with autoplay, mute for autoplay policy, and loop
+    const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=${isPlaying ? 1 : 0}&controls=0&modestbranding=1&rel=0&playsinline=1&enablejsapi=0&widgetid=1&mute=0&loop=1&playlist=${videoId}&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`;
 
     return (
         <div className={`relative ${className}`} aria-hidden={className.includes('hidden') ? 'true' : 'false'}>
             <iframe
+                key={iframeKey}
                 width={width}
                 height={height}
                 src={src}
@@ -101,10 +106,8 @@ export default function YouTubePlayer({
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 referrerPolicy="strict-origin-when-cross-origin"
                 allowFullScreen
-                className="w-full h-full pointer-events-none" // Disable pointer events to prevent clicking through to YouTube
+                className="w-full h-full pointer-events-none"
             ></iframe>
-
-
         </div>
     );
 }

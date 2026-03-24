@@ -104,7 +104,7 @@ export default function NowPlaying({
                                 </button>
                                 <div className="text-center">
                                     <p className="text-[10px] tracking-[0.25em] uppercase text-white/30">
-                                        MoodMusic // Now Playing
+                                        MoodBeats // Now Playing
                                     </p>
                                     <p className="text-xs font-medium mt-0.5" style={{ color: moodConfig.color }}>
                                         {moodConfig.label} Mode
@@ -348,7 +348,6 @@ function getSubMoods(mood: MoodType): string[] {
         gym: ['Intense', 'Cardio', 'Power'],
         study: ['Deep Focus', 'Ambient', 'Classical'],
         rock: ['Classic', 'Heavy', 'Indie'],
-        fear: ['Eerie', 'Cinematic', 'Dark'],
     };
     return subMoods[mood] || [];
 }

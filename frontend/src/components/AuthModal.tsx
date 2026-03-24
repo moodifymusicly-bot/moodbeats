@@ -70,7 +70,7 @@ export default function AuthModal({ onClose, onAuth }: AuthModalProps) {
                     {isLogin ? 'Welcome Back' : 'Create Account'}
                 </h2>
                 <p className="text-white/40 text-sm mb-6">
-                    {isLogin ? 'Sign in to get personalized recommendations' : 'Join MoodMusic for a personalized experience'}
+                    {isLogin ? 'Sign in to get personalized recommendations' : 'Join MoodBeats for a personalized experience'}
                 </p>
 
                 {error && (

@@ -55,6 +55,8 @@ const config: Config = {
                 'float': 'float 6s ease-in-out infinite',
                 'gradient-x': 'gradient-x 15s ease infinite',
                 'spin-slow': 'spin 8s linear infinite',
+                'bounce-slow': 'bounce-slow 2.5s ease-in-out infinite',
+                'glow-pulse': 'glow-pulse 3s ease-in-out infinite',
             },
             keyframes: {
                 'pulse-glow': {
@@ -68,6 +70,14 @@ const config: Config = {
                 'gradient-x': {
                     '0%, 100%': { 'background-position': '0% 50%' },
                     '50%': { 'background-position': '100% 50%' },
+                },
+                'bounce-slow': {
+                    '0%, 100%': { transform: 'translateY(0)', opacity: '0.6' },
+                    '50%': { transform: 'translateY(10px)', opacity: '1' },
+                },
+                'glow-pulse': {
+                    '0%, 100%': { boxShadow: '0 0 20px rgba(147,51,234,0.3)' },
+                    '50%': { boxShadow: '0 0 40px rgba(147,51,234,0.6), 0 0 80px rgba(139,92,246,0.2)' },
                 },
             },
             backdropBlur: {

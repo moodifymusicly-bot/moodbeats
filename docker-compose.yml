@@ -3,13 +3,11 @@ version: '3.9'
 services:
   db:
     image: postgres:15-alpine
-    container_name: moodmusic-db
+    container_name: moodbeats-db
     environment:
       POSTGRES_USER: moodmusic
       POSTGRES_PASSWORD: moodmusic_secret
       POSTGRES_DB: moodmusic
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,38 +15,49 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    container_name: moodmusic-redis
-    ports:
-      - "6379:6379"
+    container_name: moodbeats-redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: moodmusic-backend
+    container_name: moodbeats-backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://moodmusic:moodmusic_secret@db:5432/moodmusic
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: super-secret-jwt-key-change-in-production
-      ENVIRONMENT: development
+      JWT_SECRET: 39c5c7a6d62b690ecb7377aa40b1e1f6527b5ed2e64b390800267b7d7edf819f
+      ENVIRONMENT: production
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://moodbeats.187-77-184-168.nip.io
+    container_name: moodbeats-frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   pgdata:

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 import uuid
 
 
@@ -34,5 +34,5 @@ class SongListResponse(BaseModel):
 
 class InteractionCreate(BaseModel):
     song_id: uuid.UUID
-    interaction_type: str  # play, skip, like, save
+    interaction_type: Literal["play", "skip", "like", "save"]
     listen_duration: Optional[float] = None
