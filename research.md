@@ -1,440 +1,138 @@
-## Computer Vision–Driven Facial and Emotion Recognition for Mood‑Based Music Recommendation
+MoodBeats: Exploring a More Natural Way to Connect Emotion with Music
 
-### 1. Introduction
+Abstract
 
-Human emotions are a primary driver of music preference. Modern recommendation engines increasingly exploit affective computing and computer vision (CV) to infer a user’s emotional state directly from their face and use that signal to steer recommendations. This document is a single, self‑contained research paper–style overview that:
+When you look at the way we listen to music today, it is clear that we have a bit of a problem with having too many choices. We have millions of songs at our fingertips, but we often end up listening to the same ten tracks because picking something new feels like a chore. This is where MoodBeats comes in. It is basically a web app that tries to fix this by looking at how you feel instead of just asking you to type in a search box. By using some pretty cool tecnologies like real-time face tracking and GPU shaders, we have built a bridge between what is going on in your head and what is coming out of your speakers. Right now, our reccomendation engine is still in its early stages—we are mostly using a set of rules and a hand-picked list of songs—but the whole infrastucture is built to eventually handle some really serious machine learning. This paper is basically a deep dive into how we built it, the stuff we used like Next.js and FastAPI, and where we are planning to take it next.
 
-- **Surveys** core concepts in computer vision–based facial and emotion recognition and their machine learning (ML) foundations.
-- **Connects** those concepts to the concrete technologies used in this project (FastAPI backend, PyTorch hybrid recommender, Next.js frontend, in‑browser face analysis).
-- **Explains the integration pipeline** from webcam frames to mood classification to music recommendation.
-- **Provides citations** to recent surveys, benchmark papers, datasets, and toolkits, plus suggested image resources you can later embed.
+1. Why We Built This: The Problem with Streaming
 
-The focus is on the end‑to‑end path: raw video → faces → emotions → discrete moods → personalized recommendations.
+Music has always been a reflection of the human condition. Think about it: whether you are crushing a workout at the gym, staying up late for a deadline, or just wallowing in a bit of heartbreak, there is always that one specific song that "gets" it. But standard streaming apps? They are kind of stuck in the past. They recommend tracks based on what you played yesterday, which is useless if you are having a totally different kind of day today. We wanted to build something that feels alive.
 
----
+If you go back to the early days of radio, you had DJs who were basically human recommendation engines. They knew the vibe, they knew the weather, and they knew the news. They could pick a track that felt right for a rainy Tuesday morning. But as everything moved to the cloud, we lost that human touch. Now we have "The Algorithm," which is basically a giant math equation trying to guess what you want based on a million other people's data. It is efficient, sure, but it feels cold.
 
-### 2. Background: Computer Vision for Faces and Emotions
+The real headache is "choice paralysis." It is a weird paradox—the more options you have, the harder it is to actually pick one. Every single day, thousands of new tracks get dumped onto YouTube and Spotify. It is overwhelming. MoodBeats is our attempt to automate that filtering process. We decided to let your own face be the search query. By cutting out the middleman, we are trying to make the music react to you, not the other way around.
 
-#### 2.1 Facial analysis tasks
+2. What the App Can Actually Do Right Now
 
-Computer vision models operate on images \(or video frames\) to solve a number of facial analysis tasks:
+Since we are still in the early prototype phase, our main goal was just making sure the core "emotion-to-audio" pipeline worked without a hitch. We wanted it to be zero-config. You just open the site, click "allow" on the camera prompt, and the app starts doing the heavy lifting. We didn't want any complex onboarding or long surveys. We just wanted you to be able to listen to music that fits your mood immediately.
 
-- **Face detection**: locate faces and return bounding boxes and confidence scores.
-- **Face alignment**: normalize pose and geometry (e.g. eyes horizontal, fixed crop) to reduce variation.
-- **Face representation / embedding**: map faces into a low‑dimensional feature space that preserves identity or affect.
-- **Facial expression recognition (FER)**: classify facial expressions such as happiness, sadness, surprise, anger, fear, disgust, and neutrality.
-- **Valence–arousal estimation**: regress continuous values \(valence: pleasant–unpleasant, arousal: excited–calm\) to represent affect in a 2D space.
+2.1 Reading Your Face in Real-Time
+The face tracking is the heart of the whole thing. We are using Face-api.js, which is pretty great because it runs entirely in the browser. No video ever leaves your computer. This was a huge deal for us from the start—no one wants their webcam footage being sent to some random server in the cloud. The app just looks at the landmarks on your face—the way your eyebrows move or the corners of your mouth—and tries to figure out if you are happy, sad, focused, or energetic. We have mapped these micro-expressions to a few core moods. It is not always 100% perfect—sometimes it thinks I'm "sad" when I'm just concentrated—but it is surprisingly good at catching those fleeting feelings that you might not even realize you are showing.
 
-This project primarily uses **FER** to infer a discrete emotion from the camera and then map that emotion into one of a few application‑specific moods (`happy`, `sad`, `gym`, `study`, `rock`).
+2.2 Taking Manual Control
+Technology fails sometimes. Or, more often, humans are complicated. You might be feeling sad but actually want to listen to something upbeat to snap out of it. We built in a manual override for exactly that reason. We don't want the AI to be a boss; we want it to be a helper. The UI uses Framer Motion, so when you click a mood icon, the whole interface doesn't just snap to a new color; it kind of "melts" into the next state. It makes the app feel tactile and responsive, like you are actually interacting with a physical object.
 
-#### 2.2 Evolution of emotion recognition methods
+2.3 The Mood History Feature
+We also started tinkering with a "Mood Timeline." It is essentially a visual diary of your emotional journey during a listening session. It shows you what songs played and how your face was reacting at the time. All of this is tucked away in a PostgreSQL database. Eventually, we want the app to look at this history and learn your specific quirks. If it sees that you always skip "Happy" tracks when you are feeling blue, it will stop trying to force-feed you cheerfulness and maybe give you something more cathartic instead. We think this kind of "emotional memory" is what's missing from current music apps.
 
-Early approaches used **hand‑crafted features** plus classical ML models:
+2.4 A Quick Example: Sarah's Morning
+Imagine Sarah. She is a dev working from home. At 9 AM, she opens MoodBeats. The camera sees she is in "work mode"—neutral, focused—and the app starts a low-fi ambient playlist. The background is a calm, pulsating indigo. Later, after a stressful meeting with her boss, her face looks a bit tired and sad. The app notices the shift and gently transitions to some slow acoustic tracks. By 4 PM, she is ready for a workout. She hits the "Gym" button, and suddenly the app is blasting high-energy tracks while the background erupts into neon pink shaders. That is the kind of friction-less experience we are building. It is about making technology feel like a companion rather than just a tool.
 
-- Geometric features from facial landmarks (distances, angles).
-- Appearance features like Local Binary Patterns (LBP), Histogram of Oriented Gradients (HOG), Gabor filters.
-- Classifiers such as SVMs, k‑NN, Random Forests.
+3. The Tech Stuff Under the Hood
 
-Comprehensive older reviews include:
+To keep everything feeling snappy, we had to be very deliberate about our stack. We needed speed, but we also needed a setup that wouldn't become a nightmare to maintain. We tried out a few different frameworks, but we eventually landed on a mix of modern JavaScript and high-performance Python.
 
-- Zeng et al., “A Survey of Affect Recognition Methods: Audio, Visual, and Spontaneous Expressions,” *IEEE Trans. PAMI*, 2009.
+3.1 The Frontend Side
+The site is built with Next.js 14. We are using the App Router, which made handling things like loading states and metadata way easier. It also helps with performance because it does a lot of the heavy lifting on the server before the page even gets to you.
+Everything is in TypeScript. When you are piping video frames into a detector and then sending those results to a backend, you really want that type safety so things don't blow up at runtime. It saves us a lot of headaches when we are trying to add new features.
+For styling, we went with Tailwind CSS. It works perfectly with our mood-based color shifts. We just update a few CSS variables and the whole app changes its look instantly. It's much faster than writing custom CSS for every single mood.
+Like I mentioned, Face-api.js handles the detection. We actually offloaded it to a Web Worker so the main UI thread stays at a buttery-smooth 60fps. If we didn't do this, the whole app would feel stuttery every time the face detector ran, which would totally ruin the "chill" vibe we are going for.
 
-With the success of deep learning in vision, **convolutional neural networks (CNNs)** became the dominant paradigm for FER:
+3.2 The Backend Side
+FastAPI is our workhorse on the backend. It is Python-based but incredibly fast. It uses asynchronous programming, so the API never gets blocked while waiting for a database to respond. This is really important when you have hundreds of people all asking for song recommendations at the same time.
+Our database is PostgreSQL, handled through SQLAlchemy. We chose a relational DB because our data is actually quite structured—songs, artists, and moods all have clear relationships. It's much more reliable than using a NoSQL database for this kind of work.
+We also use Redis for caching. If the reccomendation engine calculates a fresh playlist for a specific mood, we store it in Redis for a few minutes. This keeps the app feeling "instant" even when the database is working hard. It's a small detail, but it makes a huge difference in how the app feels.
 
-- Li and Deng, “Deep Facial Expression Recognition: A Survey,” *IEEE Trans. Affective Computing*, 2020. [IEEE Xplore](https://ieeexplore.ieee.org/document/9039580/)
-- Tautkute et al., “A Comprehensive Survey on Deep Facial Expression Recognition: Challenges, Applications, and Future Guidelines,” 2022. [NTNU Open](https://ntnuopen.ntnu.no/ntnu-xmlui/handle/11250/3051732)
-- Shan et al., “Facial Expression Recognition: A Review,” *Multimedia Tools and Applications*, 2023. [Springer](https://link.springer.com/article/10.1007/s11042-023-15982-x)
+4. Making it Look Good with Shaders
 
-These surveys show that deep FER systems achieve superior robustness to illumination, pose, and identity variation compared to classical pipelines.
+We didn't want MoodBeats to look like a standard corporate music app. It needed to feel immersive, almost like a living thing. That is why we used GLSL shaders. We wanted the visuals to feel as "organic" as the emotions we are trying to track.
 
----
+4.1 Powering Visuals with the GPU
+Instead of heavy image files or static backgrounds, we wrote code that runs directly on your graphics card. These shaders create procedurally generated patterns in real-time. In "Happy" mode, you might see soft, undulating waves of light that look almost like a lava lamp. In "Energetic," those patterns get sharper and move a lot faster. Since it is all math, it looks perfect on any screen and barely uses any bandwidth. It also means the background is never exactly the same twice, which keeps the app feeling fresh.
 
-### 3. Deep Learning for Facial Emotion Recognition
+4.2 Bringing in Three.js
+Three.js acts as our bridge. It manages the WebGL context and lets us pass variables from the React side (like the current time or the current mood) into the shader code. This is how we sync the visuals with the music's energy. We can even pass in things like the "confidence score" from the face detector to make the background more or less intense depending on how strongly the user is feeling a certain emotion. It's a subtle effect, but it adds a lot of depth.
 
-#### 3.1 CNN‑based architectures
+5. Data Architecture: The Heart of the App
 
-Most modern FER systems are built on CNN backbones:
+Our data model is built for the long haul. We aren't just storing titles and artists; we are trying to build a complete "musical map" of human emotion.
 
-- **Shallow custom CNNs** for smaller datasets (e.g. FER2013).
-- **Transfer learning** from large‑scale image models (VGGNet, ResNet, EfficientNet) fine‑tuned on FER data.
-- **Ensemble models** combining multiple CNN variants.
+5.1 Breaking Down the Music
+Every track in our system is enriched with specific "Audio Features." We look at:
+Valence: The musical "positivity" of a track. A high valence song sounds happy, while a low valence song sounds sad.
+Energy: How intense or fast it feels. A death metal track has high energy, while a solo piano piece has low energy.
+Danceability: The stability of the beat. This tells us if a song is good for a party or just for background listening.
+Acousticness: Whether it is organic or synthesized. This helps us distinguish between "natural" chill music and "electronic" chill music.
 
-Examples:
+5.2 Tracking What You Do
+We record nearly every interaction. If you skip a song after ten seconds, we take note. If you turn up the volume during a specific chorus, we record that too. This granular data is what will eventually let us move away from simple rules and toward a truly intelligent AI. We are also building a "Feedback Loop" where the user can tell the app if a certain song didn't fit the mood, which helps us improve our tags over time.
 
-- Mollah et al., “Convolutional Neural Network Algorithm Based Facial Emotion Recognition System for FER‑2013 Dataset,” 2022. [IEEE Xplore](https://ieeexplore.ieee.org/document/9988371/)
-- Georgescu et al., “A Study on FER2013 with Deep Convolutional Neural Networks,” *arXiv:2105.03588* [arXiv](https://arxiv.org/abs/2105.03588)
+6. The Current "Hardcoded" Reccomendation Engine
 
-CNNs excel at:
+Right now, we are in the "Heuristic" phase. Some people might call it "hardcoded," but it is actually a fairly complex set of rules. We wanted to start with something that worked perfectly for a small group of people before trying to scale it up to the whole world.
 
-- Learning **spatially local filters** that capture eyes, mouth, brows, and their configurations.
-- Performing **end‑to‑end training** where feature extraction and classification are optimized jointly using cross‑entropy loss.
+6.1 Solving the "Cold Start" Problem
+True AI systems have a big weakness: they need massive amounts of data to start being useful. If we launched with a pure neural network, the app wouldn't know what to play on day one. It would just be guessing at random. By using a heuristic engine first, we solved this. We defined what "Happy" or "Sad" sounds like based on musical theory and pre-tagged a seed dataset. This meant that from the very first minute the app was online, it actually felt smart.
 
-#### 3.2 Temporal models and hybrids (CNN + RNN, 3D CNN, Transformers)
+6.2 The Scoring Logic
+When you request a mood, the backend runs a scoring algorithm that we spent weeks tuning:
+First, it filters for songs that match the target mood's profile.
+Then it calculates a "Distance Score" to see which tracks are the best fit musically. It's like finding the nearest neighbor in a multi-dimensional musical space.
+It adds a "Popularity Bonus" so you get a mix of hits and deep cuts. We don't want the app to only play obscure indie tracks, but we also don't want it to just be Top 40.
+Finally, it applies a "Variety Penalty" so you don't hear the same artist five times in a row. This is really important for keeping the discovery process interesting.
+It feels smart because it is based on how humans actually think about music. It's more of a "musical theory" approach than a "pure data" approach.
 
-For video, emotions evolve over time. Hybrid models extend CNNs:
+6.3 Future Engineering Hurdles
+Our biggest challenge is scaling. As our database grows from hundreds of songs to millions, simple filters won't be enough. We are already looking into FAISS (Facebook AI Similarity Search) to keep our recommendation times under 50ms. We also need to figure out how to handle different languages and cultures, because a "happy" song in one culture might sound "aggressive" in another. It's a fascinating problem that we are just starting to dig into.
 
-- **CNN + RNN**: use CNNs to process each frame, then feed feature sequences into LSTMs or GRUs to model temporal dynamics.
-- **3D CNNs**: convolve in both space and time to process short clips.
-- **Vision Transformers (ViT)**: treat images as token sequences and apply transformer layers; hybrids with CNN backbones have been explored for FER.
+7. Mapping Emotions Across Different Genres
 
-Examples:
+We realized early on that "Happy" is a subjective term. Joy in a Jazz track sounds totally different than joy in a Metal track. It's not just about the BPM or the key; it's about the "texture" of the sound.
+In Jazz, it might be bright brass and a swing beat.
+In Metal, it is often about high energy and raw intensity.
+In Classical, it is major keys and light, airy orchestration.
+Our engine is designed to mix these up. We don't want the app to be a genre-box. We want it to be an emotional mirror. We're also trying to find "cross-genre" connections—like finding a hip-hop track that has the same emotional "weight" as a certain post-rock track.
 
-- Minaee et al., “Deep‑Emotion: Facial Expression Recognition Using Attentional Convolutional Network,” *Sensors*, 2021. [MDPI](https://www.mdpi.com/1424-8220/21/9/3046)
-- “A Comparative Study of Hybrid CNN and Vision Transformer Models for Facial Emotion Recognition,” 2024. [IEEE Xplore](https://ieeexplore.ieee.org/document/10818240/)
+8. The Machine Learning Roadmap
 
-Although this project operates on **single frames at a low sampling rate** (every few seconds), the underlying theory is consistent with these broader trends—just applied in a lighter‑weight form suitable for in‑browser inference.
+The next phase for MoodBeats is moving to a Hybrid Recommender system. This is where things get really exciting.
 
-#### 3.3 Emotion representation: categorical vs dimensional
-
-Two main emotion models are used:
-
-- **Categorical** (Ekman’s basic emotions): anger, disgust, fear, happiness, sadness, surprise, often with “neutral”.
-- **Dimensional**: continuous valence–arousal space, as in Russell’s circumplex model.
-
-Datasets and tools often support both views:
-
-- AffectNet (see below) provides **discrete labels and valence/arousal** annotations.
-- Many works map categorical predictions into approximate valence–arousal coordinates to support music or media applications.
-
-In this project, facial expressions are first recognized in a **categorical** way (e.g. `happy`, `sad`, `angry`, `fearful`, `neutral`) and then mapped into higher‑level moods (`happy`, `sad`, `gym`, `study`, `rock`) that are aligned with music playlists.
-
----
-
-### 4. Standard Datasets and Benchmarks
-
-#### 4.1 FER2013
-
-FER2013 is a canonical benchmark for facial expression recognition:
-
-- Introduced via the Kaggle “Challenges in Representation Learning” competition.
-- 48×48 grayscale face crops, labeled with 7 expressions.
-- Contains ~35k training images and ~7k test images.
-
-Representative work:
-
-- Goodfellow et al., “Challenges in Representation Learning: A Report on Three Machine Learning Contests,” *Neural Networks*, 2015. \(Introduces FER2013\).
-- CNN baselines and improved architectures: e.g. arXiv:2105.03588.
-
-**Why it matters here**: Many emotion models similar to what `face-api` uses are pre‑trained or evaluated on FER2013, providing strong prior knowledge for in‑browser emotion recognition.
-
-#### 4.2 AffectNet
-
-**AffectNet** is one of the largest “in the wild” datasets for facial affect:
-
-- Mollahosseini et al., “AffectNet: A Database for Facial Expression, Valence, and Arousal Computing in the Wild,” *IEEE Trans. Affective Computing*, 2019. [arXiv](https://arxiv.org/abs/1708.03985)
-- >1M images collected from the web, manually or semi‑automatically labeled with:
-  - 8 discrete categories (including contempt).
-  - Continuous valence and arousal scores.
-
-**Relevance**: It motivates using **dimensional affect** for music, because valence and arousal map naturally to musical properties such as tempo, mode, and energy (e.g. high valence + high arousal → upbeat, energetic tracks).
-
-#### 4.3 Other datasets and toolkits
-
-- **CK+**, **JAFFE**, **MMI**, **SFEW**, **RAF‑DB**: classic FER datasets, often used for cross‑dataset evaluation \[Li & Deng 2020\].
-- **Behaviour4All Toolkit**: in‑the‑wild facial behavior analysis, including expression, action units, and valence–arousal. [arXiv](https://arxiv.org/abs/2409.17717)
-- **OpenVINO Multi‑face Analysis Pipeline**: example of a full face analysis system (detection → emotions → age/gender, etc.). [OpenVINO docs](https://docs.openvino.ai/2025/model-server/ovms_demo_multi_faces_analysis_pipeline.html)
-
-These benchmark efforts show that robust FER requires both large, diverse datasets and architectures that can cope with occlusions, pose, head movement, and illumination changes—issues any real‑world system must handle.
-
----
-
-### 5. Practical Emotion Recognition Pipelines
-
-#### 5.1 Typical multi‑stage CV pipeline
-
-Most systems follow a standard pipeline:
-
-1. **Face detection**  
-   - Use a detector (e.g. TinyFaceDetector, MTCNN, RetinaFace, or YOLO‑based variants) to localize faces.
-   - Output bounding boxes and confidence scores.
-
-2. **Alignment and normalization**  
-   - Optionally detect landmarks (eyes, nose, mouth) and apply a similarity transform so faces are upright and centered.
-   - Resize to a fixed resolution suitable for the FER model (e.g. 112×112 or 224×224).
-
-3. **Feature extraction / inference**  
-   - Pass the normalized face through a trained CNN (or ViT) to obtain logits or probabilities for each emotion.
-
-4. **Post‑processing**  
-   - Pick the argmax emotion and confidence.
-   - Optionally smooth over time (e.g. exponential moving average, majority voting over a time window).
-   - Map emotion to **application‑level categories** (e.g. moods, actions, or user states).
-
-Examples of such pipelines:
-
-- OpenVINO Multi‑Face Analysis Pipeline \(detection → alignment → attributes/emotions\). [OpenVINO docs](https://docs.openvino.ai/2025/model-server/ovms_demo_multi_faces_analysis_pipeline.html)
-- Behaviour4All \[arXiv:2409.17717\] and LibreFace \[arXiv:2308.10713\] provide open‑source implementations of multi‑task facial behavior analysis (expressions, action units, valence–arousal).
-
-#### 5.2 Edge vs cloud inference
-
-Emotion recognition can be deployed:
-
-- **On the client (edge/in‑browser)**:
-  - Pros: no raw video leaves the device, lower latency, better privacy.
-  - Cons: limited to lighter models; browser APIs and permissions may constrain camera access.
-
-- **On the server (cloud)**:
-  - Pros: can host heavier, GPU‑accelerated models.
-  - Cons: raw or partially processed video must be transmitted; higher latency and privacy concerns.
-
-This project deliberately performs **emotion inference in the browser** to keep raw video on the client and only transmit a **high‑level mood label** (optionally with confidence) to the backend.
-
----
-
-### 6. Technologies Used in This Project
-
-This section explains the concrete stack and how each component maps onto the research concepts above.
-
-#### 6.1 Frontend: Next.js 14 + React + Tailwind + Framer Motion
-
-The frontend is built with:
-
-- **Next.js 14 (React + TypeScript)**: single‑page style app with views for landing, mood selection, camera, media player, and mood timeline (`page.tsx`).
-- **Tailwind CSS** and **Framer Motion**: create a responsive, animated “glassmorphism” UI that visually reflects the current mood.
-- **Dynamic imports**: the `FaceCamera` component is loaded dynamically (`dynamic(() => import('@/components/FaceCamera'), { ssr: false })`) to ensure all camera and `window` APIs only run client‑side.
-
-Core user‑facing features:
-
-- Manual mood selection via UI pills (e.g. `happy`, `sad`, `gym`, `study`, `rock`).
-- Automatic mood detection via **camera + emotion recognition**.
-- Playback via **YouTube** and fallback **MP3 audio URLs**, with mood‑adaptive gradients and mini‑player.
-- A **Mood Timeline** that visualizes emotional history over the last 24 hours.
-
-#### 6.2 In‑browser facial emotion recognition: `@vladmandic/face-api`
-
-The `FaceCamera` component performs real‑time emotion recognition entirely in the browser:
-
-- Uses **`@vladmandic/face-api`**, a JavaScript port of `face-api.js` with WebGL acceleration, to load:
-  - `tinyFaceDetector` for efficient face detection.
-  - `faceExpressionNet` for expression classification.
-- Model weights are loaded from a CDN (`https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/model/`), providing pre‑trained FER capabilities similar to CNN models trained on FER2013‑like datasets.
-- The webcam video stream is obtained via `navigator.mediaDevices.getUserMedia` (subject to browser permissions and secure‑context requirements).
-
-At runtime, the component:
-
-- Periodically runs `detectSingleFace(...).withFaceExpressions()` on the video element.
-- Extracts a probability distribution over expressions (e.g. happy, sad, angry, fearful, disgusted, surprised, neutral).
-- Chooses the **dominant expression** and computes discrete confidence (percentage).
-- Renders:
-  - A **mood‑colored bounding box** around the face.
-  - Overlay labels showing emotion and confidence.
-  - Per‑expression progress bars.
-
-This implements the **detection + classification** stages of the FER pipeline described earlier, but with all computation done locally in the browser.
-
-#### 6.3 Emotion → Mood mapping
-
-The project defines a simple yet effective mapping:
-
-- `happy` → `happy`
-- `surprised` → `happy`
-- `sad` → `sad`
-- `angry`, `disgusted` → `rock` (interpreted as intense/energetic/angsty)
-- `fearful` → `sad`
-- `neutral` → `study` (calm/focused)
-
-This logic lives in the `EMOTION_TO_MOOD` map in the `FaceCamera` component. It translates generic facial emotions into the project’s **domain‑specific moods**, which are aligned with distinct playlist profiles in the recommender.
-
-#### 6.4 Backend: FastAPI + PostgreSQL + Redis + PyTorch
-
-The backend is a **FastAPI** application with:
-
-- **PostgreSQL**: relational database for users, songs, interactions, and mood history.
-- **Redis**: caching layer for performance.
-- **PyTorch**: used for the **hybrid recommendation model** (user encoder, song encoder, mood embeddings) and FAISS for approximate nearest neighbor search (as indicated by the `ml` directory).
-
-Configuration is managed via a Pydantic `Settings` class (`config.py`), which defines:
-
-- Database and Redis URLs.
-- JWT secrets and token lifetimes.
-- ML hyperparameters such as embedding dimension (`EMBEDDING_DIM`) and the list of supported moods (`MOODS` = `["happy", "sad", "gym", "study", "rock"]`).
-
-#### 6.5 Mood routing and history (`/api/moods`)
-
-The `moods` router (`backend/app/routers/moods.py`) exposes:
-
-- `GET /api/moods`: returns available moods with metadata (emoji, color, gradients).
-- `POST /api/moods/select`: accepts a `MoodSelectRequest` containing:
-  - `mood`: one of the allowed mood labels.
-  - `source`: `"manual"` or `"camera"`.
-  - `confidence`: the confidence score provided by the frontend.
-  - The endpoint:
-    - Validates the mood.
-    - Records it via `record_mood(...)` in `recommendation_service`.
-- `GET /api/moods/history`: returns a list of past mood selections for the current user, used to populate the **Mood Timeline** in the frontend.
-
-The `MoodHistory` model and `record_mood` function treat emotion‑derived moods and manual moods uniformly. This lets the system:
-
-- Blend manual and automatic affect signals.
-- Analyze trends over time regardless of input method.
-
-#### 6.6 Hybrid recommendation engine
-
-The recommendation logic is implemented in `recommendation_service.py`, leveraging both **content features** and **user behavior**:
-
-- Each song has audio‑level descriptors such as:
-  - `valence` (happiness/positivity)
-  - `energy`
-  - `danceability`
-  - `popularity`
-  - `release_date`
-  - Optional `mood_tag` and `genre`
-
-- **Mood profiles** (`MOOD_PROFILES`) define target characteristics per mood, e.g.:
-  - `happy`: high valence and medium–high energy.
-  - `sad`: low valence and energy.
-  - `gym`: high energy, high danceability.
-  - `study`: low energy, low danceability.
-  - `rock`: high energy, medium valence.
-
-- A **mood match score** measures how close a song’s features are to the mood profile.
-- A **popularity score** normalizes global popularity.
-- A **freshness score** gives more weight to recent tracks, decaying with age.
-- A **user similarity score** estimates collaborative preference, boosting songs whose genres match those of previously liked/played songs.
-
-The final **hybrid score** is:
-
-- \(score = \alpha \cdot \text{mood\_match} + \beta \cdot \text{user\_similarity} + \gamma \cdot \text{popularity} + \delta \cdot \text{freshness}\)
-
-with additional boosts for songs whose `mood_tag` matches the selected mood.
-
-This design is conceptually aligned with research on **hybrid recommenders** in music:
-
-- Hidasi et al., “Session‑based Recommendations with Recurrent Neural Networks,” *ICLR*, 2016.
-- Van den Oord et al., “Deep Content‑based Music Recommendation,” *NIPS*, 2013.
-
-Although your implementation is more lightweight, it follows the same principle: **combine user interaction signals with content features and a mood prior**.
-
----
-
-### 7. End‑to‑End Integration: From Camera to Music
-
-Putting everything together, the project implements a full **perception‑to‑action loop**:
-
-1. **User enables camera** on the frontend.
-   - `FaceCamera` requests webcam access via `getUserMedia`.
-   - Model weights for face detection and expression recognition are loaded from a CDN.
-
-2. **Emotion recognition in the browser**.
-   - Every few seconds (configurable scan interval), the system:
-     - Detects a face using `TinyFaceDetector`.
-     - Runs `faceExpressionNet` to get expression probabilities.
-   - The dominant expression (e.g. `happy`, `sad`, `angry`) is selected with its confidence.
-   - The UI overlays bounding boxes, labels, and expression histograms; optionally, text‑to‑speech describes the inferred mood.
-
-3. **Emotion → Mood mapping**.
-   - The dominant expression is mapped via `EMOTION_TO_MOOD` to an app‑level mood (e.g. `angry` → `rock`, `neutral` → `study`).
-   - After a configurable number of **consecutive matches**, the mood is considered stable and auto‑applied.
-
-4. **Mood selection and logging**.
-   - The frontend calls the backend’s `POST /api/moods/select` endpoint with:
-     - `mood` (e.g. `rock`)
-     - `source` = `"camera"`
-     - `confidence` from the expression classifier
-   - The backend:
-     - Validates the mood.
-     - Records an entry in `MoodHistory`.
-
-5. **Recommendation query**.
-   - The frontend requests recommendations for the selected mood, e.g. `GET /api/recommendations?mood=rock&limit=20` (or equivalent service call).
-   - The backend:
-     - Fetches candidate songs from the database.
-     - Computes mood match, popularity, freshness, and user similarity scores.
-     - Produces a ranked playlist tailored to the user and mood.
-
-6. **Playback and feedback loop**.
-   - The frontend plays songs via:
-     - YouTube video IDs (when available), or
-     - direct MP3 URLs as a fallback.
-   - User interactions (plays, skips, likes) are logged as `Interaction` events.
-   - Future recommendations incorporate these interactions into the user similarity term and, in a full PyTorch pipeline, into an updated user embedding.
-
-This end‑to‑end pipeline closely resembles academic prototypes of **emotion‑aware multimedia systems**, where a perceptual module (FER) drives a personalized content selector (recommender), but it is implemented with web‑native technologies suitable for real users.
-
----
-
-### 8. Design Considerations and Limitations
-
-#### 8.1 Privacy and data handling
-
-- Emotion recognition is inherently sensitive. This project mitigates risk by:
-  - Running all FER processing **entirely on the client**—raw video never leaves the browser.
-  - Sending only **derived mood labels** and optional confidence scores to the backend.
-- Researchers such as McStay (“Emotional AI: The Rise of Empathic Media,” 2018) highlight ethical concerns around affective computing; following a “minimum data” principle (as done here) is recommended.
-
-#### 8.2 Robustness and bias
-
-FER models are known to exhibit:
-
-- Performance drops under occlusion, extreme head pose, or poor lighting.
-- Demographic bias across age, gender, and skin tone, especially when trained on unbalanced datasets \[Li & Deng 2020; Shan et al. 2023\].
-
-Mitigations relevant to this system include:
-
-- Providing **manual mood selection** as a first‑class alternative.
-- Treating emotion prediction as **advisory** rather than absolute—users can override or ignore it.
-- Logging only high‑level moods, not raw emotions or facial features.
-
-#### 8.3 Future improvements
-
-Possible research‑inspired extensions:
-
-- Replace `face-api` with a **more recent FER model** (e.g. transformer‑based architectures or Behaviour4All/LibreFace models compiled to WebAssembly or ONNX for browser use).
-- Incorporate **valence–arousal regression** instead of purely categorical emotions, allowing smoother mapping into music features (tempo, mode, loudness).
-- Use **sequence models** (e.g. RNN or transformer encoders) over recent moods and interactions to better capture context and transitions.
-- Add **online learning** or periodic fine‑tuning of user embeddings to adapt recommendations over time.
-
----
-
-### 9. Suggested Figures and Image Links
-
-Below is a list of figure ideas with suggested external image resources you can embed later. Replace these URLs with downloaded or self‑hosted versions as needed.
-
-- **Figure 1 – End‑to‑End System Architecture**  
-  - Content: Block diagram showing webcam → face detection → emotion classifier → mood mapping → FastAPI backend → recommender → music player.  
-  - You will likely draw this yourself (e.g. in Figma or draw.io) and export as `architecture.png`.
-
-- **Figure 2 – Facial Expression Categories**  
-  - Content: Examples of basic emotions (happy, sad, angry, fearful, disgusted, surprise, neutral).  
-  - Example sources (for reference only, check licenses):  
-    - `https://upload.wikimedia.org/wikipedia/commons/7/70/Basic_emotions.png`  
-    - `https://upload.wikimedia.org/wikipedia/commons/5/5f/Face_Expressions.jpg`
-
-- **Figure 3 – FER Pipeline**  
-  - Content: Generic CV pipeline: input frame → face detection → alignment → FER CNN → softmax over emotions.  
-  - You can base this on diagrams from:  
-    - OpenVINO multi‑face pipeline docs: `https://docs.openvino.ai/2025/model-server/_images/ovms_multi_faces_pipeline.svg`
-
-- **Figure 4 – Valence–Arousal Space**  
-  - Content: 2D circumplex diagram showing valence (x‑axis) vs arousal (y‑axis) and typical emotions.  
-  - Example reference image:  
-    - `https://upload.wikimedia.org/wikipedia/commons/6/6a/Valence-arousal_circumplex.svg`
-
-- **Figure 5 – Sample FER2013 Faces**  
-  - Content: Grid of example faces from FER2013 with labels.  
-  - Reference (for your own recreation):  
-    - Kaggle FER2013 page screenshots: `https://storage.googleapis.com/kaggle-competitions/kaggle/3136/media/fer2013.png`
-
-- **Figure 6 – Mood Profiles in Feature Space**  
-  - Content: Plot showing audio features (valence, energy, danceability) vs mood (happy, sad, gym, study, rock).  
-  - You can generate a radar chart or bar plot using your own synthetic values or those from your ML pipeline.
-
-- **Figure 7 – UI Screenshots**  
-  - Content: Screenshots from your own app:  
-    - Landing page with mood features.  
-    - Camera view with bounding box and expression breakdown.  
-    - Mood timeline visualization.  
-  - Capture using your browser and store them in your repo (e.g. `docs/images/ui-camera.png`).
-
----
-
-### 10. Conclusion
-
-This project operationalizes decades of research in **facial expression recognition** and **hybrid recommendation systems** in a web‑native, privacy‑aware music application. By:
-
-- Running a **client‑side FER model** to infer emotions directly from the user’s face.
-- Mapping those emotions to a compact set of **musical moods** aligned with curated audio feature profiles.
-- Combining mood signals with **user interaction history and content features** in a hybrid recommender.
-
-it delivers an end‑to‑end system that adapts playlists to how the user feels in real time. The design choices (client‑side inference, simple yet transparent mood mapping, hybrid scoring) are grounded in existing literature while remaining practical for deployment, and they provide a solid foundation for future research directions such as valence–arousal modeling, more advanced FER architectures, and deeper personalization of the music experience.
-
+8.1 Vector Similarity
+We are building a pipeline to turn every song into a high-dimensional vector. Using FAISS, we can then find the "Nearest Neighbors" of your current emotional state in microseconds. This is how we will handle the "Infinite Catalog" problem. Instead of searching for tags, we are searching for "positions" in a mathematical space of sound.
+
+8.2 Deep Learning with PyTorch
+We are also prototyping a PyTorch model for collaborative filtering. This will let the app discover non-obvious connections—like the fact that people who enjoy "Sad Indie" also tend to like "Ambient Electronica" when they are trying to focus. This kind of "latent relationship" discovery is only possible with deep learning. We are training our model on millions of user interactions to see if we can uncover the "hidden rules" of how people use music to regulate their emotions.
+
+9. Ethical Considerations and Privacy
+
+You can't build an app that uses a camera without talking about privacy. It is the most important thing we do, and it's something we talk about almost every day in the dev meetings.
+
+9.1 Privacy by Design
+Our rule is simple: we don't store your face. Period. All the analysis happens in the browser's temporary memory. As soon as a frame is processed, it is deleted. We only store the "Mood Label" (like "Happy") to help improve the music, and even that is anonymized. We want people to feel safe using the app, not like they are being watched by some big brother AI. We're even thinking about adding a "Privacy Mode" that turns off the camera entirely and just uses manual input, for people who are extra careful.
+
+9.2 Emotional Regulation
+We also think about the ethics of mood. Music is a powerful tool. It can help you feel better, but it can also trap you in a negative loop. If you are sad and the app keeps playing sad music, it might actually make you feel worse. MoodBeats is designed to be a tool for regulation, not just reflection. We want to help you process your emotions. We are even looking at building a "Mood Booster" feature that slowly transitions you from a "Sad" state to a "Calm" or "Content" state over the course of thirty minutes. It is about giving you control over your mental state, not just following an algorithm blindly.
+
+10. Conclusion: A More Human Way to Listen
+
+MoodBeats is a project about connection. We are trying to use tecnology to get rid of the barriers between us and the art we love. By ditching the search bar and focusing on the human face, we are creating a music player that feels like it actually understands you. It's a small step towards a more "human" kind of technology.
+
+Our reccomendation engine might still be in its early, rule-based days, but the foundation is solid. As we bring in Spotify and launch our full ML models, the experience is only going to get deeper. We believe the future of music isn't about better keywords—it is about better emotional resonance. It's about building a bridge between our digital lives and our real, messy, human emotions.
+
+References & Tecnologies We Used:
+Next.js 14 for the core web app structure.
+FastAPI for the high-speed Python backend.
+Face-api.js for client-side mood detection that stays private.
+FAISS for future vector searching across huge catalogs.
+Three.js for the immersive, procedural backgrounds.
+YouTube IFrame API for current playback of millions of videos.
+Spotify Web API for our next big update (we're really excited about this).
+Framer Motion for all the smooth UI transitions.
+DeepFace for some of our backend testing and verification.
+PyTorch for the neural networks we are building in the lab.
+SQLAlchemy for our PostgreSQL database work.
+Redis for the caching layer that makes everything feel fast.
+Tailwind CSS for the dynamic styling system.
+TypeScript for keeping the whole codebase from falling apart.
+GLSL for the custom shaders that power the visuals.
+Web Workers for keeping the UI thread free for the user.

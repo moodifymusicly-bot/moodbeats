@@ -5,7 +5,7 @@ A Spotify-level mood-based music recommendation web app powered by deep learning
 ## Architecture
 
 ```
-teddy/
+MoodBeats/
 ├── backend/          # FastAPI + PostgreSQL + Redis + PyTorch
 │   ├── app/
 │   │   ├── main.py           # App entry point
