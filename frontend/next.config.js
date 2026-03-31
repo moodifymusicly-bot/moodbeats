@@ -7,6 +7,13 @@ const nextConfig = {
     env: {
         NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
     },
+    webpack: (config) => {
+        config.resolve.fallback = { fs: false, crypto: false, path: false, os: false };
+        config.ignoreWarnings = [
+            { module: /node_modules\/@vladmandic\/face-api/ }
+        ];
+        return config;
+    },
 }
 
 module.exports = nextConfig

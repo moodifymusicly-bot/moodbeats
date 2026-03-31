@@ -1,6 +1,39 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    TORCH_AVAILABLE = True
+except ImportError:
+    # Stub so class definitions don't fail at import time
+    TORCH_AVAILABLE = False
+    class _StubModule:
+        def __init__(self, *args, **kwargs): pass
+        def __init_subclass__(cls, **kwargs): super().__init_subclass__(**kwargs)
+    class _StubNN:
+        Module = _StubModule
+        class Parameter:
+            def __init__(self, *args, **kwargs): pass
+        class Embedding:
+            def __init__(self, *args, **kwargs): pass
+        class Sequential:
+            def __init__(self, *args, **kwargs): pass
+        class Linear:
+            def __init__(self, *args, **kwargs): pass
+        class ReLU:
+            def __init__(self, *args, **kwargs): pass
+        class Dropout:
+            def __init__(self, *args, **kwargs): pass
+        class LayerNorm:
+            def __init__(self, *args, **kwargs): pass
+        class TransformerEncoderLayer:
+            def __init__(self, *args, **kwargs): pass
+        class TransformerEncoder:
+            def __init__(self, *args, **kwargs): pass
+    nn = _StubNN()
+    class _StubF:
+        @staticmethod
+        def cosine_similarity(*args, **kwargs): return 0.0
+    F = _StubF()
 import numpy as np
 
 
