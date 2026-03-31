@@ -10,6 +10,6 @@ services:
       - key: APP_NAME
         value: MoodBeats API
       - key: ALLOWED_ORIGINS
-        value: https://moodbeats.vercel.app,http://localhost:3000
+        value: https://moodbeatzz.vercel.app,http://localhost:3000
       - key: PORT
         value: 8000
