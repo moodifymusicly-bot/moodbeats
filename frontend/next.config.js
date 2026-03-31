@@ -5,7 +5,7 @@ const nextConfig = {
         unoptimized: true,
     },
     env: {
-        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://moodbeats-backend.onrender.com',
     },
     webpack: (config) => {
         config.resolve.fallback = { fs: false, crypto: false, path: false, os: false };
