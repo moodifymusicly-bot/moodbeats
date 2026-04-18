@@ -9,7 +9,8 @@ from alembic import op
 
 
 revision = "0002"
-down_revision = "0001"
+# Must match revision id in 0001_init.py ("0001_init"), not the filename prefix.
+down_revision = "0001_init"
 branch_labels = None
 depends_on = None
 
