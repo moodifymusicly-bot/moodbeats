@@ -41,14 +41,19 @@ MOOD_PROFILES = {
 }
 
 # Scoring weights (mood + personalized content + popularity + freshness)
-ALPHA = 0.4   # mood match
-BETA = 0.28   # user taste
-GAMMA = 0.2   # popularity
-DELTA = 0.12  # freshness
+ALPHA = 0.42  # audio/mood profile fit (primary ranking signal)
+BETA = 0.30   # user taste
+GAMMA = 0.18  # popularity
+DELTA = 0.10  # freshness
 
 # Cold-start (no taste vector yet): emphasize mood over generic similarity
-ALPHA_COLD = 0.52
-BETA_COLD = 0.18
+ALPHA_COLD = 0.50
+BETA_COLD = 0.20
+
+# Extra boost when DB mood_tag matches requested mood.
+MOOD_TAG_MATCH_MULT = 1.25       # was 1.08 — stronger same-mood boost
+MOOD_TAG_MATCH_MULT_FY = 1.04
+MOOD_TAG_MISMATCH_PENALTY = 0.12  # NEW: penalise songs tagged for a different mood
 
 # Mood-agnostic "For you" blend
 FY_USER = 0.58
@@ -341,7 +346,12 @@ async def get_recommendations(
         final_score -= skip_penalty(skips, song.id)
 
         if song.mood_tag == mood:
-            final_score *= 1.3
+            final_score *= MOOD_TAG_MATCH_MULT
+        elif song.mood_tag and song.mood_tag != mood:
+            # Penalise songs explicitly tagged for a different mood so they
+            # don't crowd out on-mood results even if their audio features
+            # happen to be close to the requested mood profile.
+            final_score = max(0.0, final_score - MOOD_TAG_MISMATCH_PENALTY)
 
         final_score = float(max(0.0, final_score))
 
@@ -411,8 +421,11 @@ async def get_for_you_recommendations(
         genre_b = _genre_overlap_bonus(song, liked_genres)
         user_sim = float(np.clip(0.82 * cos_sim + 0.18 * genre_b, 0.0, 1.0))
 
+        # Cold-start: no taste vector yet — use mood as primary driver instead
+        # of generic cosine similarity (which returns a near-constant ~0.41).
+        is_cold_start = user_unit is None
         mood_score = compute_mood_score(song, recent_mood) if recent_mood else 0.5
-        mood_blend = 0.12 * mood_score if recent_mood else 0.0
+        mood_blend = (0.45 * mood_score) if (recent_mood and is_cold_start) else (0.12 * mood_score if recent_mood else 0.0)
 
         final_score = (
             FY_USER * user_sim
@@ -422,7 +435,7 @@ async def get_for_you_recommendations(
         )
         final_score -= skip_penalty(skips, song.id)
         if recent_mood and song.mood_tag == recent_mood:
-            final_score *= 1.08
+            final_score *= MOOD_TAG_MATCH_MULT_FY
         final_score = float(max(0.0, final_score))
 
         scored.append(
@@ -483,7 +496,12 @@ async def get_home_feed(
     foryou_limit: int = 10,
     history_limit: int = 6,
 ) -> dict:
-    """Assemble personalized home sections with cross-section deduplication."""
+    """Assemble personalized home sections with cross-section deduplication.
+
+    Priority when the same song appears in multiple sections: last_played wins,
+    then for_you, then most_played, then mood_starter (so recent listening is
+    never dropped in favor of generic recommendations).
+    """
     n = await count_user_interactions(db, user_id)
     cold = n < settings.COLD_START_INTERACTION_THRESHOLD
 
@@ -506,8 +524,8 @@ async def get_home_feed(
         )
 
     seen: set[uuid.UUID] = set()
-    for_you = _dedupe_rows(seen, for_you_raw)
     last_played = _dedupe_rows(seen, last_raw)
+    for_you = _dedupe_rows(seen, for_you_raw)
     most_played = _dedupe_rows(seen, most_raw)
     mood_starter = _dedupe_rows(seen, mood_starter_raw) if cold else []
 
@@ -526,21 +544,22 @@ async def get_discover_feed(
     db: AsyncSession,
     user_id: uuid.UUID | None = None,
     limit: int = 8,
-    mood: str = "happy",
+    mood: str | None = None,
 ) -> dict:
     """Curated discovery feed: fresh picks, timeless classics, trending.
 
     Works for both anonymous and authenticated users. Cached for 10 min.
     """
     segment = str(user_id) if user_id else "anon"
-    cache_key = f"mb:discover:{segment}:{mood}:{limit}"
+    mood_key = mood if mood else "neutral"
+    cache_key = f"mb:discover:{segment}:{mood_key}:{limit}"
     cached_blob = await cache.get_json(cache_key)
     if cached_blob:
         return {
             "fresh_picks": _deserialize_results(cached_blob["fresh_picks"]),
             "timeless_classics": _deserialize_results(cached_blob["timeless_classics"]),
             "trending": _deserialize_results(cached_blob["trending"]),
-            "suggested_mood": cached_blob.get("suggested_mood", mood),
+            "suggested_mood": cached_blob.get("suggested_mood", mood_key),
         }
 
     result = await db.execute(select(Song))
@@ -550,7 +569,7 @@ async def get_discover_feed(
             "fresh_picks": [],
             "timeless_classics": [],
             "trending": [],
-            "suggested_mood": mood,
+            "suggested_mood": mood_key,
         }
 
     profile: UserPreferenceProfile | None = None
@@ -620,7 +639,7 @@ async def get_discover_feed(
             "fresh_picks": _serialize_results(fresh_picks),
             "timeless_classics": _serialize_results(timeless_classics),
             "trending": _serialize_results(trending),
-            "suggested_mood": mood,
+            "suggested_mood": mood_key,
         },
         ttl=settings.RECO_MOOD_CACHE_TTL,
     )
@@ -629,7 +648,7 @@ async def get_discover_feed(
         "fresh_picks": fresh_picks,
         "timeless_classics": timeless_classics,
         "trending": trending,
-        "suggested_mood": mood,
+        "suggested_mood": mood_key,
     }
 
 

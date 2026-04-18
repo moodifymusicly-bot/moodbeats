@@ -52,6 +52,15 @@ function mapApiRecommendationToSong(s: Record<string, unknown>): RecommendedSong
     };
 }
 
+/** Accent for SongCard when no mood is selected: prefer the song's tag, else a neutral default (not happy). */
+const FALLBACK_CARD_MOOD: MoodType = 'study';
+
+function cardAccentMood(song: RecommendedSong, selected: MoodType | null): MoodType {
+    const t = (song.mood_tag || '').toLowerCase();
+    if (t && t in MOOD_CONFIG) return t as MoodType;
+    return selected ?? FALLBACK_CARD_MOOD;
+}
+
 type HomeFeedData = {
     for_you: RecommendedSong[];
     last_played: RecommendedSong[];
@@ -105,6 +114,8 @@ export default function Home() {
     const [homeFeedLoading, setHomeFeedLoading] = useState(false);
     const [discoverFeed, setDiscoverFeed] = useState<DiscoverFeedData | null>(null);
     const [discoverLoading, setDiscoverLoading] = useState(false);
+
+    const [recentlyPlayedLocal, setRecentlyPlayedLocal] = useState<RecommendedSong[]>([]);
 
     // Clerk auth + user preferences
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
@@ -203,12 +214,11 @@ export default function Home() {
         if (!isSignedIn) return;
         setHomeFeedLoading(true);
         try {
-            const starter = selectedMood || 'happy';
             const data = await api.getHomeRecommendations({
-                starter_mood: starter,
                 mood_limit: 8,
                 foryou_limit: 10,
                 history_limit: 6,
+                ...(selectedMood ? { starter_mood: selectedMood } : {}),
             });
             const map = (rows: Record<string, unknown>[]) =>
                 rows.map((s) => mapApiRecommendationToSong(s));
@@ -230,15 +240,17 @@ export default function Home() {
     const loadDiscoverFeed = useCallback(async () => {
         setDiscoverLoading(true);
         try {
-            const mood = selectedMood || 'happy';
-            const data = await api.getDiscoverFeed({ mood, limit: 8 });
+            const data = await api.getDiscoverFeed({
+                limit: 8,
+                ...(selectedMood ? { mood: selectedMood } : {}),
+            });
             const map = (rows: Record<string, unknown>[]) =>
                 rows.map((s) => mapApiRecommendationToSong(s));
             setDiscoverFeed({
                 fresh_picks: map(data.fresh_picks ?? []),
                 timeless_classics: map(data.timeless_classics ?? []),
                 trending: map(data.trending ?? []),
-                suggested_mood: data.suggested_mood || mood,
+                suggested_mood: data.suggested_mood || selectedMood || 'neutral',
             });
         } catch (e) {
             console.warn('loadDiscoverFeed failed', e);
@@ -516,6 +528,19 @@ export default function Home() {
         } catch { }
     }, []);
 
+    // Load recently played songs from localStorage on mount (works for all users)
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem('recently_played_songs');
+            if (stored) {
+                const parsed: RecommendedSong[] = JSON.parse(stored);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setRecentlyPlayedLocal(parsed);
+                }
+            }
+        } catch { }
+    }, []);
+
     useEffect(() => {
         if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
 
@@ -644,13 +669,15 @@ export default function Home() {
                     console.warn('selectMood failed', err)
                 );
             }
-            const filtered = artistFilter.trim()
-                ? boosted.filter((s) => s.artist.toLowerCase().includes(artistFilter.toLowerCase()))
-                : boosted;
-
-            if (filtered.length > 0) {
-                const randomIndex = Math.floor(Math.random() * filtered.length);
-                void handleSongPlay(filtered[randomIndex]);
+            if (boosted.length === 0) {
+                toast.error('No songs found for this mood. Try again or select a mood manually.');
+            } else {
+                const filtered = artistFilter.trim()
+                    ? boosted.filter((s) => s.artist.toLowerCase().includes(artistFilter.toLowerCase()))
+                    : boosted;
+                const playList = filtered.length > 0 ? filtered : boosted;
+                const randomIndex = Math.floor(Math.random() * playList.length);
+                void handleSongPlay(playList[randomIndex]);
             }
         } finally {
             setMoodRecLoading(false);
@@ -677,13 +704,12 @@ export default function Home() {
         setProgress(0);
 
         try {
-            const log = JSON.parse(localStorage.getItem('songs_played_log') || '[]');
-            log.push({
-                songTitle: resolved.title,
-                artist: resolved.artist,
-                timestamp: new Date().toISOString(),
-            });
-            localStorage.setItem('songs_played_log', JSON.stringify(log));
+            const MAX_RECENT = 20;
+            const prev: RecommendedSong[] = JSON.parse(localStorage.getItem('recently_played_songs') || '[]');
+            const deduped = prev.filter((s) => s.id !== resolved.id);
+            const updated = [resolved, ...deduped].slice(0, MAX_RECENT);
+            localStorage.setItem('recently_played_songs', JSON.stringify(updated));
+            setRecentlyPlayedLocal(updated);
         } catch {
             /* ignore */
         }
@@ -700,7 +726,7 @@ export default function Home() {
     };
 
     const handleSubMoodSelect = async (subMood: string) => {
-        const mood = selectedMood || 'happy';
+        const mood = selectedMood ?? FALLBACK_CARD_MOOD;
         setSelectedSubMood(subMood);
         setSubMoodLoading(true);
 
@@ -1255,110 +1281,8 @@ export default function Home() {
                             />
                         </div>
 
-                        {/* ===== DISCOVER FEED: Fresh Picks, Classics, Trending (all users) ===== */}
-                        {songs.length === 0 && (discoverLoading || discoverFeed) && (
-                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4 space-y-5">
-                                {discoverLoading && !discoverFeed && (
-                                    <div className="flex items-center justify-center gap-3 py-4">
-                                        <div className="w-6 h-6 border-2 border-white/20 border-t-purple-400/70 rounded-full animate-spin" />
-                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Loading recommendations...</p>
-                                    </div>
-                                )}
-                                {discoverFeed && [
-                                    { title: 'Fresh Picks', subtitle: 'New & trending music for you', icon: '✨', songs: discoverFeed.fresh_picks, accent: '#a78bfa' },
-                                    { title: 'Timeless Classics', subtitle: 'Legendary tracks that never get old', icon: '💎', songs: discoverFeed.timeless_classics, accent: '#fbbf24' },
-                                    { title: 'Trending Now', subtitle: 'What everyone is listening to', icon: '🔥', songs: discoverFeed.trending, accent: '#f97316' },
-                                ]
-                                    .filter((sec) => sec.songs.length > 0)
-                                    .map((section) => (
-                                        <div key={section.title}>
-                                            <div className="flex items-center gap-2 mb-2.5">
-                                                <span className="text-base">{section.icon}</span>
-                                                <div>
-                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
-                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-                                                {section.songs.map((song, i) => (
-                                                    <div
-                                                        key={`discover-${section.title}-${song.id}-${i}`}
-                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
-                                                    >
-                                                        <SongCard
-                                                            song={song}
-                                                            index={i}
-                                                            mood={(selectedMood || 'happy') as MoodType}
-                                                            isActive={currentSong?.id === song.id}
-                                                            isPlaying={isPlaying && currentSong?.id === song.id}
-                                                            onPlay={() => void handleSongPlay(song)}
-                                                            onLike={() => toggleLikeSong(song.id, song)}
-                                                            isLiked={likedSongs.has(song.id)}
-                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
-                                                        />
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                            </div>
-                        )}
-
-                        {/* ===== PERSONALIZED HOME FEED (signed-in users) ===== */}
-                        {songs.length === 0 && isSignedIn && (homeFeedLoading || homeFeed) && (
-                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
-                                {homeFeedLoading && !homeFeed && (
-                                    <div className="flex items-center justify-center gap-3 py-3">
-                                        <div className="w-5 h-5 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
-                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Personalizing...</p>
-                                    </div>
-                                )}
-                                {homeFeed && [
-                                    { title: 'Recommended for You', subtitle: 'Based on your listening history', icon: '🎯', songs: homeFeed.for_you },
-                                    { title: 'Recently Played', subtitle: 'Pick up where you left off', icon: '🕐', songs: homeFeed.last_played },
-                                    { title: 'Your Most Played', subtitle: 'Your all-time favorites', icon: '🏆', songs: homeFeed.most_played },
-                                    ...(homeFeed.cold_start && homeFeed.mood_starter.length > 0
-                                        ? [{ title: 'Starter Picks', subtitle: 'Get started with these curated tracks', icon: '🌱', songs: homeFeed.mood_starter }]
-                                        : []),
-                                ]
-                                    .filter((sec) => sec.songs.length > 0)
-                                    .map((section) => (
-                                        <div key={section.title}>
-                                            <div className="flex items-center gap-2 mb-2.5">
-                                                <span className="text-base">{section.icon}</span>
-                                                <div>
-                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
-                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-                                                {section.songs.map((song, i) => (
-                                                    <div
-                                                        key={`home-${section.title}-${song.id}-${i}`}
-                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
-                                                    >
-                                                        <SongCard
-                                                            song={song}
-                                                            index={i}
-                                                            mood={(selectedMood || 'happy') as MoodType}
-                                                            isActive={currentSong?.id === song.id}
-                                                            isPlaying={isPlaying && currentSong?.id === song.id}
-                                                            onPlay={() => void handleSongPlay(song)}
-                                                            onLike={() => toggleLikeSong(song.id, song)}
-                                                            isLiked={likedSongs.has(song.id)}
-                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
-                                                        />
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                            </div>
-                        )}
-
-                        {/* Start Detection / Camera Section */}
+                        {/* Detect Mood — Camera/Detection Section (shown first per UX requirements) */}
                         <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-2">
-                            {/* Camera area */}
                             <AnimatePresence>
                                 {cameraActive ? (
                                     <motion.div
@@ -1388,13 +1312,13 @@ export default function Home() {
                                     <motion.div
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
-                                        className="text-center py-6 sm:py-8"
+                                        className="text-center py-4 sm:py-6"
                                     >
                                         <h2 className="text-2xl sm:text-3xl lg:text-4xl font-display font-black tracking-tight">
                                             {selectedMood ? (
                                                 <>Current Mood Detected</>
                                             ) : (
-                                                <>Select Your Mood</>
+                                                <>Detect Your Mood</>
                                             )}
                                         </h2>
 
@@ -1420,34 +1344,32 @@ export default function Home() {
                                             </motion.div>
                                         )}
 
-                                        {/* START DETECTION Button - only show when no playlist is active */}
-                                        {songs.length === 0 && (
-                                            <motion.button
-                                                onClick={() => { setCameraActive(true); setIsDetecting(false); }}
-                                                whileHover={{ scale: 1.02 }}
-                                                whileTap={{ scale: 0.95 }}
-                                                className="mt-6 w-full max-w-[300px] mx-auto py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all flex items-center justify-center gap-3"
-                                                style={{
-                                                    background: `linear-gradient(135deg, ${moodColor} 0%, ${moodColor}CC 100%)`,
-                                                    color: '#000',
-                                                    boxShadow: `0 0 30px ${moodColor}40`,
-                                                }}
-                                            >
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                </svg>
-                                                Start Detection
-                                            </motion.button>
-                                        )}
+                                        {/* START DETECTION Button — always visible (not gated on songs.length) */}
+                                        <motion.button
+                                            onClick={() => { setCameraActive(true); setIsDetecting(false); }}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            className="mt-6 w-full max-w-[300px] mx-auto py-4 rounded-xl text-sm font-black tracking-[0.2em] uppercase transition-all flex items-center justify-center gap-3"
+                                            style={{
+                                                background: `linear-gradient(135deg, ${moodColor} 0%, ${moodColor}CC 100%)`,
+                                                color: '#000',
+                                                boxShadow: `0 0 30px ${moodColor}40`,
+                                            }}
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                            </svg>
+                                            {selectedMood ? 'Re-detect Mood' : 'Start Detection'}
+                                        </motion.button>
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                         </div>
 
-                        {/* Mood Selector Pills */}
+                        {/* Mood Selector Pills — below detect section */}
                         <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4">
                             <p className="text-[9px] tracking-[0.35em] uppercase text-center text-white/20 mb-3">
-                                Select Disposition
+                                Or choose manually
                             </p>
                             <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
                                 {(['happy', 'sad', 'gym', 'study', 'rock'] as MoodType[]).map((mood) => (
@@ -1463,25 +1385,6 @@ export default function Home() {
                                         {MOOD_CONFIG[mood].emoji} {MOOD_CONFIG[mood].label}
                                     </motion.button>
                                 ))}
-                            </div>
-                        </div>
-
-
-                        {/* Optional Artist Filter */}
-                        <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4">
-                            <div className="relative max-w-2xl mx-auto">
-                                <input
-                                    type="text"
-                                    placeholder="Optional: Filter by Artist..."
-                                    value={artistFilter}
-                                    onChange={(e) => setArtistFilter(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all font-display tracking-widest uppercase text-center"
-                                />
-                                {artistFilter && (
-                                    <button onClick={() => setArtistFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/70">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                )}
                             </div>
                         </div>
 
@@ -1542,6 +1445,158 @@ export default function Home() {
                                 </div>
                             </div>
                         )}
+
+                        {/* ===== RECENTLY PLAYED (anonymous: localStorage; signed-in uses server row below) ===== */}
+                        {songs.length === 0 && !isSignedIn && recentlyPlayedLocal.length > 0 && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-6 space-y-1">
+                                <div className="flex items-center gap-2 mb-2.5">
+                                    <span className="text-base">🕐</span>
+                                    <div>
+                                        <h3 className="text-sm font-bold tracking-wide text-white/90">Recently Played</h3>
+                                        <p className="text-[10px] text-white/35 tracking-wide">Pick up where you left off</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                                    {recentlyPlayedLocal.map((song, i) => (
+                                        <div
+                                            key={`recent-local-${song.id}-${i}`}
+                                            className="min-w-[200px] max-w-[240px] flex-shrink-0"
+                                        >
+                                            <SongCard
+                                                song={song}
+                                                index={i}
+                                                mood={cardAccentMood(song, selectedMood)}
+                                                isActive={currentSong?.id === song.id}
+                                                isPlaying={isPlaying && currentSong?.id === song.id}
+                                                onPlay={() => void handleSongPlay(song)}
+                                                onLike={() => toggleLikeSong(song.id, song)}
+                                                isLiked={likedSongs.has(song.id)}
+                                                onAddToPlaylist={() => setAddToPlaylistSong(song)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ===== DISCOVER FEED: Fresh Picks, Classics, Trending (all users) ===== */}
+                        {songs.length === 0 && (discoverLoading || discoverFeed) && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
+                                {discoverLoading && !discoverFeed && (
+                                    <div className="flex items-center justify-center gap-3 py-4">
+                                        <div className="w-6 h-6 border-2 border-white/20 border-t-purple-400/70 rounded-full animate-spin" />
+                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Loading recommendations...</p>
+                                    </div>
+                                )}
+                                {discoverFeed && [
+                                    { title: 'Fresh Picks', subtitle: 'New & trending music for you', icon: '✨', songs: discoverFeed.fresh_picks, accent: '#a78bfa' },
+                                    { title: 'Timeless Classics', subtitle: 'Legendary tracks that never get old', icon: '💎', songs: discoverFeed.timeless_classics, accent: '#fbbf24' },
+                                    { title: 'Trending Now', subtitle: 'What everyone is listening to', icon: '🔥', songs: discoverFeed.trending, accent: '#f97316' },
+                                ]
+                                    .filter((sec) => sec.songs.length > 0)
+                                    .map((section) => (
+                                        <div key={section.title}>
+                                            <div className="flex items-center gap-2 mb-2.5">
+                                                <span className="text-base">{section.icon}</span>
+                                                <div>
+                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
+                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                                                {section.songs.map((song, i) => (
+                                                    <div
+                                                        key={`discover-${section.title}-${song.id}-${i}`}
+                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
+                                                    >
+                                                        <SongCard
+                                                            song={song}
+                                                            index={i}
+                                                            mood={cardAccentMood(song, selectedMood)}
+                                                            isActive={currentSong?.id === song.id}
+                                                            isPlaying={isPlaying && currentSong?.id === song.id}
+                                                            onPlay={() => void handleSongPlay(song)}
+                                                            onLike={() => toggleLikeSong(song.id, song)}
+                                                            isLiked={likedSongs.has(song.id)}
+                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
+
+                        {/* ===== PERSONALIZED HOME FEED (signed-in users) — recent plays first, then for-you ===== */}
+                        {songs.length === 0 && isSignedIn && (homeFeedLoading || homeFeed) && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
+                                {homeFeedLoading && !homeFeed && (
+                                    <div className="flex items-center justify-center gap-3 py-3">
+                                        <div className="w-5 h-5 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
+                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Personalizing...</p>
+                                    </div>
+                                )}
+                                {homeFeed && [
+                                    { title: 'Recommended for You', subtitle: 'Based on your listening history', icon: '🎯', songs: homeFeed.for_you },
+                                    { title: 'Recently Played', subtitle: 'Pick up where you left off', icon: '🕐', songs: homeFeed.last_played },
+                                    { title: 'Your Most Played', subtitle: 'Your all-time favorites', icon: '🏆', songs: homeFeed.most_played },
+                                    ...(homeFeed.cold_start && homeFeed.mood_starter.length > 0
+                                        ? [{ title: 'Starter Picks', subtitle: 'Get started with these curated tracks', icon: '🌱', songs: homeFeed.mood_starter }]
+                                        : []),
+                                ]
+                                    .filter((sec) => sec.songs.length > 0)
+                                    .map((section) => (
+                                        <div key={section.title}>
+                                            <div className="flex items-center gap-2 mb-2.5">
+                                                <span className="text-base">{section.icon}</span>
+                                                <div>
+                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
+                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                                                {section.songs.map((song, i) => (
+                                                    <div
+                                                        key={`home-${section.title}-${song.id}-${i}`}
+                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
+                                                    >
+                                                        <SongCard
+                                                            song={song}
+                                                            index={i}
+                                                            mood={cardAccentMood(song, selectedMood)}
+                                                            isActive={currentSong?.id === song.id}
+                                                            isPlaying={isPlaying && currentSong?.id === song.id}
+                                                            onPlay={() => void handleSongPlay(song)}
+                                                            onLike={() => toggleLikeSong(song.id, song)}
+                                                            isLiked={likedSongs.has(song.id)}
+                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
+
+                        {/* Optional Artist Filter */}
+                        <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4">
+                            <div className="relative max-w-2xl mx-auto">
+                                <input
+                                    type="text"
+                                    placeholder="Optional: Filter by Artist..."
+                                    value={artistFilter}
+                                    onChange={(e) => setArtistFilter(e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all font-display tracking-widest uppercase text-center"
+                                />
+                                {artistFilter && (
+                                    <button onClick={() => setArtistFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/70">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
                         {/* Song List */}
                         {songs.length > 0 && (
@@ -1901,7 +1956,7 @@ export default function Home() {
                                 Disposition
                             </p>
                             <div className="flex justify-center gap-1.5 sm:gap-2 flex-wrap">
-                                {getSubMoods(selectedMood || 'happy').map((sub) => (
+                                {getSubMoods(selectedMood ?? FALLBACK_CARD_MOOD).map((sub) => (
                                     <button key={sub}
                                         onClick={() => handleSubMoodSelect(sub)}
                                         disabled={subMoodLoading}
