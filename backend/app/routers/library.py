@@ -26,6 +26,7 @@ from app.schemas.library import (
 from app.schemas.song import SongResponse
 from app.services.auth_service import get_current_user
 from app.services import library_service
+from app.services.song_service import record_interaction
 
 router = APIRouter(prefix="/api/library", tags=["Library"])
 
@@ -58,14 +59,18 @@ async def like_song(
     if not await library_service.song_exists(db, song_id):
         raise HTTPException(status_code=404, detail="Song not found")
 
-    # Best-effort cache invalidation: personal recs + taste vector now stale.
     from app.services.cache import cache  # local import avoids startup cycle
-    await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
-    await cache.delete(f"mb:taste:{current_user.id}")
 
-    like, _created = await library_service.like_song(
+    like, created = await library_service.like_song(
         db, current_user.id, song_id
     )
+    # Taste model reads `interactions`; mirror heart likes into that stream once.
+    if created:
+        await record_interaction(db, current_user.id, song_id, "like")
+
+    await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
+    await cache.delete_pattern(f"mb:reco:mood:*:u:{current_user.id}")
+    await cache.delete(f"mb:taste:{current_user.id}")
     # Re-fetch with song eager-loaded for the response payload.
     likes = await library_service.list_likes(db, current_user.id)
     match = next((l for l in likes if l.id == like.id), like)
@@ -86,6 +91,7 @@ async def unlike_song(
     await library_service.unlike_song(db, current_user.id, song_id)
     from app.services.cache import cache
     await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
+    await cache.delete_pattern(f"mb:reco:mood:*:u:{current_user.id}")
     await cache.delete(f"mb:taste:{current_user.id}")
     return None
 

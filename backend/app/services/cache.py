@@ -12,7 +12,7 @@ wraps an `redis.asyncio.Redis` client configured against
 The key prefix convention is `mb:<ns>:<...>` (see user rule
 "Use Consistent Key Naming Conventions"). Namespaces in use:
 
-* `mb:reco:mood:{mood}:{limit}`   - mood recommendation lists
+* `mb:reco:mood:{mood}:{limit}:u:{user_or_anon}` - mood lists (per-user rank)
 * `mb:reco:foryou:{user}:{limit}` - personalized feed
 * `mb:taste:{user}`               - normalized 6-D taste vector
 * `mb:pop:{type}:{song}`          - popularity counters (no TTL)

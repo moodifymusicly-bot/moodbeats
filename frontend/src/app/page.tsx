@@ -19,6 +19,37 @@ import { MoodType, MOOD_CONFIG, RecommendedSong, formatDuration } from '@/lib/ty
 const ShaderBackground = dynamic(() => import('@/components/ShaderBackground'), { ssr: false });
 const StarDropBackground = dynamic(() => import('@/components/StarDropBackground'), { ssr: false });
 
+/** Server-issued song ids from `/api/recommendations` are UUIDs — use for interact without upsert. */
+const SERVER_SONG_ID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function mapApiRecommendationToSong(s: Record<string, unknown>): RecommendedSong {
+    const id = String(s.id);
+    const ext =
+        s.external_source === 'youtube' && s.external_id ? String(s.external_id) : undefined;
+    return {
+        id,
+        title: String(s.title ?? ''),
+        artist: String(s.artist ?? ''),
+        album: (s.album as string | null | undefined) ?? null,
+        genre: String(s.genre ?? ''),
+        mood_tag: String(s.mood_tag ?? ''),
+        duration: Number(s.duration ?? 0),
+        cover_url: (s.cover_url as string | null | undefined) ?? null,
+        audio_url: (s.audio_url as string | null | undefined) ?? null,
+        preview_url: (s.preview_url as string | null | undefined) ?? null,
+        youtube_id: ext,
+        valence: Number(s.valence ?? 0.5),
+        energy: Number(s.energy ?? 0.5),
+        danceability: Number(s.danceability ?? 0.5),
+        popularity: Number(s.popularity ?? 50),
+        release_date: (s.release_date as string | null | undefined) ?? null,
+        score: Number(s.score ?? 0),
+        mood_match: Number(s.mood_match ?? 0),
+        user_similarity: Number(s.user_similarity ?? 0),
+    };
+}
+
 // ===== VIEWS =====
 type AppView = 'landing' | 'home' | 'search' | 'playing' | 'camera' | 'media' | 'timeline';
 
@@ -52,6 +83,7 @@ export default function Home() {
     const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
     const [selectedSubMood, setSelectedSubMood] = useState<string | null>(null);
     const [subMoodLoading, setSubMoodLoading] = useState(false);
+    const [moodRecLoading, setMoodRecLoading] = useState(false);
 
     // Clerk auth + user preferences
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
@@ -75,6 +107,10 @@ export default function Home() {
     const resolveServerSongId = useCallback(async (song: RecommendedSong): Promise<string | null> => {
         const cached = songIdMapRef.current.get(song.id);
         if (cached) return cached;
+        if (SERVER_SONG_ID_RE.test(song.id)) {
+            songIdMapRef.current.set(song.id, song.id);
+            return song.id;
+        }
         const external_id = song.youtube_id || song.id;
         if (!external_id) return null;
         try {
@@ -96,6 +132,50 @@ export default function Home() {
             return null;
         }
     }, [api]);
+
+    const loadRecommendationsForMood = useCallback(
+        async (mood: MoodType): Promise<RecommendedSong[]> => {
+            try {
+                const data = await api.getRecommendations(mood, 30);
+                let mapped = (data?.songs ?? []).map((s: Record<string, unknown>) =>
+                    mapApiRecommendationToSong(s)
+                );
+                if (mapped.length === 0) {
+                    const yt = await api.searchYouTube(`${MOOD_CONFIG[mood].label} music`, 15);
+                    mapped = (yt.items || []).map((item, i) => ({
+                        id: `yt-fb-${item.external_id}`,
+                        title: item.title,
+                        artist: item.artist,
+                        album: '',
+                        genre: mood,
+                        mood_tag: mood,
+                        duration: item.duration || 0,
+                        cover_url: item.cover_url,
+                        audio_url: null,
+                        preview_url: null,
+                        youtube_id: item.external_id,
+                        valence: 0.5,
+                        energy: 0.5,
+                        danceability: 0.5,
+                        popularity: 50,
+                        release_date: null,
+                        score: 1 - i * 0.02,
+                        mood_match: 0.5,
+                        user_similarity: 0.5,
+                    }));
+                }
+                return [...mapped].sort((a, b) => {
+                    const aLiked = likedSongs.has(a.id) ? 0.2 : 0;
+                    const bLiked = likedSongs.has(b.id) ? 0.2 : 0;
+                    return b.score + bLiked - (a.score + aLiked);
+                });
+            } catch (err) {
+                console.warn('loadRecommendationsForMood failed', err);
+                return [];
+            }
+        },
+        [api, likedSongs]
+    );
 
     // Load settings from localStorage on mount (settings stay local-only).
     useEffect(() => {
@@ -435,6 +515,7 @@ export default function Home() {
     const resetHomeState = () => {
         setSelectedMood(null);
         setSongs([]);
+        setMoodRecLoading(false);
         setCameraActive(false);
         setIsDetecting(false);
         setDetectedEmotion(null);
@@ -442,73 +523,100 @@ export default function Home() {
         setArtistFilter('');
     };
 
-    const handleMoodSelect = (mood: MoodType, source: 'camera' | 'manual' = 'manual', confidence: number = 1.0) => {
+    const handleMoodSelect = async (
+        mood: MoodType,
+        source: 'camera' | 'manual' = 'manual',
+        confidence: number = 1.0
+    ) => {
         setSelectedMood(mood);
         setSelectedSubMood(null);
-        const baseSongs = getSampleSongs(mood);
-        const boosted = [...baseSongs].sort((a, b) => {
-            const aLiked = likedSongs.has(a.id) ? 0.2 : 0;
-            const bLiked = likedSongs.has(b.id) ? 0.2 : 0;
-            return (b.score + bLiked) - (a.score + aLiked);
-        });
-        setSongs(boosted);
+        setMoodRecLoading(true);
+        try {
+            const boosted = await loadRecommendationsForMood(mood);
+            setSongs(boosted);
+        } finally {
+            setMoodRecLoading(false);
+        }
         const updated = addMoodEntry(mood, source, confidence);
         setMoodHistory(updated);
 
-        // Persist the mood selection server-side for mood_history + rec caching.
         if (isSignedIn) {
-            api.selectMood(mood, source, confidence).catch(err =>
+            api.selectMood(mood, source, confidence).catch((err) =>
                 console.warn('selectMood failed', err)
             );
         }
     };
 
-    const handleCameraMood = (mood: MoodType, conf: number) => {
+    const handleCameraMood = async (mood: MoodType, conf: number) => {
         setDetectedEmotion(MOOD_CONFIG[mood].label);
         setDetectedConfidence(Math.round(conf * 100));
-        handleMoodSelect(mood, 'camera', conf);
+        setSelectedMood(mood);
+        setSelectedSubMood(null);
         setIsDetecting(false);
         setCameraActive(false);
 
-        // Auto-play a RANDOM song from the detected mood's playlist
-        const availableSongs = getSampleSongs(mood);
-        const filtered = artistFilter.trim()
-            ? availableSongs.filter(s => s.artist.toLowerCase().includes(artistFilter.toLowerCase()))
-            : availableSongs;
+        setMoodRecLoading(true);
+        try {
+            const boosted = await loadRecommendationsForMood(mood);
+            setSongs(boosted);
+            const updated = addMoodEntry(mood, 'camera', conf);
+            setMoodHistory(updated);
+            if (isSignedIn) {
+                api.selectMood(mood, 'camera', conf).catch((err) =>
+                    console.warn('selectMood failed', err)
+                );
+            }
+            const filtered = artistFilter.trim()
+                ? boosted.filter((s) => s.artist.toLowerCase().includes(artistFilter.toLowerCase()))
+                : boosted;
 
-        if (filtered.length > 0) {
-            const randomIndex = Math.floor(Math.random() * filtered.length);
-            handleSongPlay(filtered[randomIndex]);
+            if (filtered.length > 0) {
+                const randomIndex = Math.floor(Math.random() * filtered.length);
+                void handleSongPlay(filtered[randomIndex]);
+            }
+        } finally {
+            setMoodRecLoading(false);
         }
     };
 
-    const handleSongPlay = (song: RecommendedSong) => {
-        setCurrentSong(song);
+    const handleSongPlay = async (song: RecommendedSong) => {
+        let resolved: RecommendedSong = { ...song };
+        if (!resolved.youtube_id && !resolved.audio_url) {
+            try {
+                const data = await api.searchYouTube(`${resolved.title} ${resolved.artist}`, 1);
+                const first = data.items?.[0];
+                if (first?.external_id) {
+                    resolved = { ...resolved, youtube_id: first.external_id };
+                }
+            } catch (err) {
+                console.warn('YouTube resolve for playback failed', err);
+            }
+        }
+
+        setCurrentSong(resolved);
         setIsPlaying(true);
         setView('playing');
         setProgress(0);
 
-        if (songs.length === 0 && selectedMood) {
-            setSongs(getSampleSongs(selectedMood));
-        }
-
         try {
             const log = JSON.parse(localStorage.getItem('songs_played_log') || '[]');
-            log.push({ songTitle: song.title, artist: song.artist, timestamp: new Date().toISOString() });
+            log.push({
+                songTitle: resolved.title,
+                artist: resolved.artist,
+                timestamp: new Date().toISOString(),
+            });
             localStorage.setItem('songs_played_log', JSON.stringify(log));
-        } catch { }
+        } catch {
+            /* ignore */
+        }
 
-        // Persist the play interaction server-side. Upserts the song first so
-        // YouTube results also become part of the recommender catalog.
         if (isSignedIn) {
-            (async () => {
-                try {
-                    const serverId = await resolveServerSongId(song);
-                    if (serverId) await api.interactWithSong(serverId, 'play');
-                } catch (err) {
-                    console.warn('play interaction failed', err);
-                }
-            })();
+            try {
+                const serverId = await resolveServerSongId(resolved);
+                if (serverId) await api.interactWithSong(serverId, 'play');
+            } catch (err) {
+                console.warn('play interaction failed', err);
+            }
         }
     };
 
@@ -544,7 +652,7 @@ export default function Home() {
 
             if (mapped.length > 0) {
                 setSongs(mapped);
-                handleSongPlay(mapped[0]);
+                void handleSongPlay(mapped[0]);
             }
         } catch (err) {
             console.warn('Sub-mood search failed:', err);
@@ -555,13 +663,13 @@ export default function Home() {
     const handleNext = () => {
         if (!currentSong) return;
         const idx = songs.findIndex(s => s.id === currentSong.id);
-        if (idx < songs.length - 1) handleSongPlay(songs[idx + 1]);
+        if (idx < songs.length - 1) void handleSongPlay(songs[idx + 1]);
     };
 
     const handlePrev = () => {
         if (!currentSong) return;
         const idx = songs.findIndex(s => s.id === currentSong.id);
-        if (idx > 0) handleSongPlay(songs[idx - 1]);
+        if (idx > 0) void handleSongPlay(songs[idx - 1]);
     };
 
     const moodColor = selectedMood ? MOOD_CONFIG[selectedMood].color : '#3b82f6';
@@ -1165,7 +1273,7 @@ export default function Home() {
                                 {(['happy', 'sad', 'gym', 'study', 'rock'] as MoodType[]).map((mood) => (
                                     <motion.button
                                         key={mood}
-                                        onClick={() => handleMoodSelect(mood)}
+                                        onClick={() => void handleMoodSelect(mood)}
                                         whileTap={{ scale: 0.95 }}
                                         className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-full text-[10px] sm:text-xs tracking-[0.2em] uppercase font-bold transition-all duration-300 ${selectedMood === mood
                                             ? 'bg-white/10 border border-white/30 text-white'
@@ -1197,8 +1305,17 @@ export default function Home() {
                             </div>
                         </div>
 
+                        {moodRecLoading && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-12 flex flex-col items-center justify-center gap-3">
+                                <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                                <p className="text-[10px] tracking-[0.35em] uppercase text-white/35 font-semibold">
+                                    Loading recommendations
+                                </p>
+                            </div>
+                        )}
+
                         {/* Mood Card Grid — fills empty space when no songs are loaded */}
-                        {songs.length === 0 && (
+                        {songs.length === 0 && !moodRecLoading && (
                             <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-8 flex-1">
                                 <p className="text-[9px] tracking-[0.35em] uppercase text-center text-white/20 mb-5 font-semibold">
                                     Explore Moods
@@ -1207,7 +1324,7 @@ export default function Home() {
                                     {(['happy', 'sad', 'gym', 'study', 'rock'] as MoodType[]).map((mood, i) => (
                                         <motion.button
                                             key={mood}
-                                            onClick={() => handleMoodSelect(mood)}
+                                            onClick={() => void handleMoodSelect(mood)}
                                             initial={{ opacity: 0, y: 20 }}
                                             animate={{ opacity: 1, y: 0 }}
                                             transition={{ delay: i * 0.08, duration: 0.5 }}
@@ -1275,7 +1392,7 @@ export default function Home() {
                                                 mood={selectedMood!}
                                                 isActive={currentSong?.id === song.id}
                                                 isPlaying={isPlaying && currentSong?.id === song.id}
-                                                onPlay={() => handleSongPlay(song)}
+                                                onPlay={() => void handleSongPlay(song)}
                                                 onLike={() => toggleLikeSong(song.id, song)}
                                                 isLiked={likedSongs.has(song.id)}
                                                 onAddToPlaylist={() => setAddToPlaylistSong(song)}
@@ -1384,7 +1501,7 @@ export default function Home() {
                                         key={song.id}
                                         initial={{ opacity: 0, y: 6 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        onClick={() => handleSongPlay(song)}
+                                        onClick={() => void handleSongPlay(song)}
                                         className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left group hover:bg-white/[0.05]"
                                     >
                                         <div className="w-14 h-10 rounded-lg bg-white/10 overflow-hidden relative flex-shrink-0">
@@ -1934,106 +2051,4 @@ function getSubMoods(mood: MoodType): string[] {
         rock: ['Angry', 'Brooding', 'Determined'],
     };
     return subMoods[mood] || ['Angry', 'Brooding', 'Determined'];
-}
-
-
-// ============================================================
-// Sample data with REAL YouTube video IDs for actual playback
-// Memoized to avoid re-creating objects with new random values every render
-// ============================================================
-const songCache = new Map<MoodType, RecommendedSong[]>();
-
-function getSampleSongs(mood: MoodType): RecommendedSong[] {
-    const cached = songCache.get(mood);
-    if (cached) return cached;
-
-    const sampleData: Record<MoodType, { title: string; artist: string; album: string; ytId: string }[]> = {
-        happy: [
-            { title: 'Happy', artist: 'Pharrell Williams', album: 'G I R L', ytId: 'MOWDb2TBYDg' },
-            { title: "Don't Stop Me Now", artist: 'Queen', album: 'Jazz', ytId: 'p1m1AIL3d_A' },
-            { title: 'Uptown Funk', artist: 'Bruno Mars', album: 'Uptown Special', ytId: '0EqSXDwTq6U' },
-            { title: 'Shake It Off', artist: 'Taylor Swift', album: '1989', ytId: '8xg3vE8Ie_E' },
-            { title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', album: 'Trolls', ytId: 'p5RobDomh5U' },
-            { title: 'Levitating', artist: 'Dua Lipa', album: 'Future Nostalgia', ytId: 'TUVcZfQe-Kw' },
-            { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', ytId: 'fHI8X4OXluQ' },
-            { title: 'Dynamite', artist: 'BTS', album: 'BE', ytId: 'gdZLi9oWNZg' },
-            { title: 'Watermelon Sugar', artist: 'Harry Styles', album: 'Fine Line', ytId: '7-x3uD5z1bQ' },
-        ],
-        sad: [
-            { title: 'Someone Like You', artist: 'Adele', album: '21', ytId: 'njmCUJ94lqw' },
-            { title: 'Fix You', artist: 'Coldplay', album: 'X&Y', ytId: 'k4V3Mo61fJM' },
-            { title: 'The Night We Met', artist: 'Lord Huron', album: 'Strange Trails', ytId: 'wGF7PswOENQ' },
-            { title: 'Skinny Love', artist: 'Bon Iver', album: 'For Emma Forever Ago', ytId: 'aP2Jk7b5Fm4' },
-            { title: 'Creep', artist: 'Radiohead', album: 'Pablo Honey', ytId: 'XFkzRNyygfk' },
-            { title: 'Hallelujah', artist: 'Jeff Buckley', album: 'Grace', ytId: 'y8AWFf7EAc4' },
-            { title: 'Let Her Go', artist: 'Passenger', album: 'All the Little Lights', ytId: '16bJqA6nnsM' },
-            { title: 'drivers license', artist: 'Olivia Rodrigo', album: 'SOUR', ytId: 'ZmDBbnmKFnI' },
-            { title: 'Space Song', artist: 'Beach House', album: 'Depression Cherry', ytId: 'f9X1C7pTu-M' },
-        ],
-        gym: [
-            { title: 'Stronger', artist: 'Kanye West', album: 'Graduation', ytId: 'PsO6ZnUZI0g' },
-            { title: 'Eye of the Tiger', artist: 'Survivor', album: 'Eye of the Tiger', ytId: 'btPJPFnesV4' },
-            { title: 'Lose Yourself', artist: 'Eminem', album: '8 Mile', ytId: '_Yhyp-_hX2s' },
-            { title: 'Till I Collapse', artist: 'Eminem', album: 'The Eminem Show', ytId: 'ytQ5CYE1VZw' },
-            { title: 'Power', artist: 'Kanye West', album: 'MBDTF', ytId: 'L53gjP-TtGE' },
-            { title: 'Thunderstruck', artist: 'AC/DC', album: 'Razors Edge', ytId: 'v2AC41dglnM' },
-            { title: 'Levels', artist: 'Avicii', album: 'True', ytId: '_ovdm2yX4MA' },
-            { title: 'Radioactive', artist: 'Imagine Dragons', album: 'Night Visions', ytId: 'ktvTqknDobU' },
-            { title: 'HUMBLE.', artist: 'Kendrick Lamar', album: 'DAMN.', ytId: 'tvTRZJ-4EyI' },
-        ],
-        study: [
-            { title: 'Clair de Lune', artist: 'Claude Debussy', album: 'Suite bergamasque', ytId: 'CvFH_6DNRCY' },
-            { title: 'Experience', artist: 'Ludovico Einaudi', album: 'In a Time Lapse', ytId: 'hN_q-_nGv4U' },
-            { title: 'Nuvole Bianche', artist: 'Ludovico Einaudi', album: 'Una Mattina', ytId: 'xyY4IZ3JDFE' },
-            { title: 'River Flows in You', artist: 'Yiruma', album: 'First Love', ytId: '7maJOI3QMu0' },
-            { title: 'Intro', artist: 'The xx', album: 'xx', ytId: 'AZ1pHmRuvBo' },
-            { title: 'Weightless', artist: 'Marconi Union', album: 'Weightless', ytId: 'UfcAVejslrU' },
-            { title: 'Sunset Lover', artist: 'Petit Biscuit', album: 'Petit Biscuit', ytId: 'wuCK-oiE3rM' },
-            { title: 'Midnight City', artist: 'M83', album: 'Hurry Up Were Dreaming', ytId: 'dX3k_QDnzHE' },
-            { title: 'First Step', artist: 'Hans Zimmer', album: 'Interstellar OST', ytId: 'o_Ay_iDRAbc' },
-        ],
-        rock: [
-            { title: 'Bohemian Rhapsody', artist: 'Queen', album: 'A Night at the Opera', ytId: 'fJ9rUzIMcZQ' },
-            { title: 'Something in the Way', artist: 'Nirvana', album: 'Nevermind', ytId: 'hnRv1azouqA' },
-            { title: "Sweet Child O' Mine", artist: "Guns N' Roses", album: 'Appetite', ytId: '1w7OgIMMRc4' },
-            { title: 'Smells Like Teen Spirit', artist: 'Nirvana', album: 'Nevermind', ytId: 'hTWKbfoikeg' },
-            { title: 'Back in Black', artist: 'AC/DC', album: 'Back in Black', ytId: 'pAgnJDJN4VA' },
-            { title: 'Enter Sandman', artist: 'Metallica', album: 'Metallica', ytId: 'CD-E-LDc384' },
-            { title: 'Master of Puppets', artist: 'Metallica', album: 'Master of Puppets', ytId: 'E0ozmU9cJDg' },
-            { title: 'Comfortably Numb', artist: 'Pink Floyd', album: 'The Wall', ytId: '_FrOQC-zEog' },
-            { title: 'Paint It Black', artist: 'Rolling Stones', album: 'Aftermath', ytId: 'O4irXQhgMqg' },
-        ],
-    };
-
-    const safeAudioUrls = [
-        'https://cdn.pixabay.com/audio/2022/03/15/audio_7ce17a3a60.mp3',
-        'https://cdn.pixabay.com/audio/2022/01/18/audio_d0a13f69d2.mp3',
-        'https://cdn.pixabay.com/audio/2022/10/25/audio_34b3dc04c2.mp3',
-        'https://cdn.pixabay.com/audio/2021/11/25/audio_91b3cb4bdc.mp3',
-    ];
-
-    const result = (sampleData[mood] || []).map((s, i) => ({
-        id: `sample-${mood}-${i}`,
-        title: s.title,
-        artist: s.artist,
-        album: s.album,
-        genre: mood,
-        mood_tag: mood,
-        duration: 180 + (i * 17) % 120,
-        cover_url: `https://picsum.photos/seed/${s.title.replace(/\s+/g, '-').toLowerCase()}/300/300`,
-        audio_url: safeAudioUrls[i % safeAudioUrls.length],
-        preview_url: null,
-        youtube_id: s.ytId,
-        valence: ((i * 37) % 100) / 100,
-        energy: ((i * 53) % 100) / 100,
-        danceability: ((i * 71) % 100) / 100,
-        popularity: 60 + (i * 7) % 40,
-        release_date: null,
-        score: 0.95 - i * 0.03,
-        mood_match: 0.9 - i * 0.02,
-        user_similarity: 0.8 - i * 0.02,
-    }));
-
-    songCache.set(mood, result);
-    return result;
 }

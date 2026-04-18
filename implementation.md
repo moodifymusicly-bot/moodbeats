@@ -156,7 +156,10 @@ stored in `interactions`.
 ### APIs
 
 - `GET /api/recommendations?mood=...` -> hybrid: mood fit + taste +
-  popularity + freshness (auth optional).
+  popularity + freshness (auth optional). The primary mood UI loads this
+  endpoint (not a hardcoded track list); Redis keys are per-user for
+  mood lists. Seed-catalog rows may resolve a YouTube video on first
+  play via the existing search proxy when no `audio_url` is present.
 - `GET /api/recommendations/for-you` -> authenticated; taste +
   popularity + freshness + small recent-mood bias.
 

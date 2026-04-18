@@ -9,6 +9,7 @@ Thumbs.db
 
 __pycache__/
 *.pyc
+backend/.venv/
 
 # Env + secrets
 .env

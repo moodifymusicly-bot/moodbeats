@@ -112,8 +112,9 @@ async def interact_with_song(
     # an interaction because Redis is down.
     await cache.incr(f"mb:pop:{data.interaction_type}:{parsed_id}")
 
-    # User taste + personal feed are now stale; scope-limited invalidation.
+    # User taste + personal feed + mood lists (per-user cache keys) are stale.
     await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
+    await cache.delete_pattern(f"mb:reco:mood:*:u:{current_user.id}")
     await cache.delete(f"mb:taste:{current_user.id}")
 
     return {"status": "ok"}

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 import uuid
 
 
@@ -20,9 +21,13 @@ class RecommendedSong(BaseModel):
     cover_url: Optional[str] = None
     audio_url: Optional[str] = None
     preview_url: Optional[str] = None
+    external_source: str = "seed"
+    external_id: Optional[str] = None
     valence: float
     energy: float
+    danceability: float = 0.5
     popularity: int
+    release_date: Optional[datetime] = None
     score: float  # recommendation confidence score
     mood_match: float
     user_similarity: float

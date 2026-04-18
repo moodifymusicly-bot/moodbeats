@@ -201,6 +201,8 @@ def _serialize_results(results: list[dict]) -> list[dict]:
                     "cover_url": s.cover_url,
                     "audio_url": s.audio_url,
                     "preview_url": s.preview_url,
+                    "external_source": getattr(s, "external_source", "seed"),
+                    "external_id": getattr(s, "external_id", None),
                     "valence": s.valence,
                     "energy": s.energy,
                     "danceability": s.danceability,
@@ -252,6 +254,14 @@ def _deserialize_results(data: list[dict]) -> list[dict]:
     ]
 
 
+def mood_reco_cache_key(
+    mood: str, limit: int, user_id: uuid.UUID | None
+) -> str:
+    """Redis key for mood-based recommendation lists (per-user ranking)."""
+    segment = str(user_id) if user_id else "anon"
+    return f"mb:reco:mood:{mood}:{limit}:u:{segment}"
+
+
 # --- public API ---
 
 async def get_recommendations(
@@ -263,12 +273,11 @@ async def get_recommendations(
 ) -> tuple[list[dict], bool]:
     """Mood-based recommendations. Returns `(results, cached)`.
 
-    Cache key intentionally excludes `user_id` and `exclude_ids` since the
-    mood list is cross-user and the router never populates exclude_ids.
-    Personalization is layered on for-you; keeping mood results shared
-    maximizes cache hit rate.
+    Cache key includes a user segment because ranking uses per-user taste
+    and skip penalties when `user_id` is set. Anonymous callers share
+    ``u:anon``.
     """
-    cache_key = f"mb:reco:mood:{mood}:{limit}"
+    cache_key = mood_reco_cache_key(mood, limit, user_id)
     if not exclude_ids:
         cached_blob = await cache.get_json(cache_key)
         if cached_blob:

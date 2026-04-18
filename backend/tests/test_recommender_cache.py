@@ -69,3 +69,13 @@ def test_blend_popularity_falls_back_to_db_when_no_live_data():
 
     song = _fake_song(popularity=80)
     assert _blend_popularity(song, {}) == pytest.approx(0.8, rel=1e-3)
+
+
+def test_mood_reco_cache_key_includes_user_segment():
+    import uuid
+
+    from app.services.recommendation_service import mood_reco_cache_key
+
+    uid = uuid.uuid4()
+    assert mood_reco_cache_key("happy", 20, None) == "mb:reco:mood:happy:20:u:anon"
+    assert mood_reco_cache_key("happy", 20, uid) == f"mb:reco:mood:happy:20:u:{uid}"

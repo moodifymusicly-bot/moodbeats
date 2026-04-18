@@ -74,3 +74,9 @@
 - **Why**: `/opt` was empty; previous scripts assumed `/opt/moodbeats`. Public site failed because nothing listened on 80/443 for the app.
 - **Validation**: `https://148.135.138.197.nip.io/api/health` and `/` return 200 from external curl after Caddy fix.
 - **Security**: Root password was shared in chat — user must **change SSH password** and prefer SSH keys; never commit credentials.
+
+## 2026-04-18 (personalized recommendations E2E)
+- **Task**: Wire the app to DB-backed recommendations, fix cache/signals, playback for seed rows.
+- **What changed**: **Backend**: `RecommendedSong` includes `external_source`, `external_id`, `danceability`, `release_date`; `mood_reco_cache_key()` / per-user mood Redis keys; `mb:reco:mood:*:u:{user}` invalidation on interact; library **like** records `Interaction(type=like)` when the like row is new; `app/schemas/__init__.py` fixed stale exports. **Frontend**: `page.tsx` loads `/api/recommendations` with YouTube fallback when empty; removed hardcoded `getSampleSongs`; lazy YouTube search on play when no `youtube_id`/`audio_url`; UUID `resolveServerSongId` short-circuit; loading state. **Tests**: `test_mood_reco_cache_key_includes_user_segment`, `test_library_like_interaction.py`. **Docs**: `implementation.md` APIs note.
+- **Why**: Users now get individualized, growing lists tied to `interactions` + Redis; hearts feed the taste model.
+- **Next action**: Optional “For you” surface in UI; tune lazy-resolve caching if search volume is high.
