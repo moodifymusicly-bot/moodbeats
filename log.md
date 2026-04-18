@@ -2,8 +2,8 @@
 
 ## 2026-04-18 (deploy — local agent)
 - **Task**: Ship recommendation work to VPS `148.135.138.197`.
-- **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Wrote offline bundle `/tmp/moodbeats-reco-deploy.bundle`. SSH to VPS from this environment still **Permission denied (publickey,password)** — user must deploy from their connected session.
-- **Next action**: On a machine with GitHub access: `git push origin main`. On the VPS: `cd /moodbeats && git pull origin main && docker compose up -d --build` (or `scp /tmp/moodbeats-reco-deploy.bundle root@VPS:/root/` then `bash scripts/vps-pull-bundle-rebuild.sh /root/moodbeats-reco-deploy.bundle`). Confirm `alembic` reaches `0002` via logs or `docker compose exec backend alembic current`.
+- **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Offline bundle: `releases/moodbeats-deploy.bundle` (gitignored). Added **`scripts/deploy-vps-from-dev.sh`** (scp bundle + `git pull` + `docker compose up -d --build`) and **`scripts/vps-authorize-dev-machine-key.sh`** (print lines to add this dev’s `~/.ssh/id_ed25519.pub` to root `authorized_keys` on the VPS). Automated SSH/scp from the agent still fails (no `ssh-askpass`, key not on server).
+- **Next action**: **Option A** — On VPS (password session): run the lines from `bash scripts/vps-authorize-dev-machine-key.sh`, then from dev: `bash scripts/deploy-vps-from-dev.sh` (no password if key works). **Option B** — From any terminal with working `scp`/`ssh`: `bash scripts/deploy-vps-from-dev.sh` and enter the VPS password when prompted. **Option C** — `git push origin main` then on VPS `git pull && docker compose up -d --build`.
 
 ## 2026-04-18
 - **Task**: Production-ready recommendation checklist (home feed + activity + cold-start)
