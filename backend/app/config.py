@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     RECO_MOOD_CACHE_TTL: int = 600       # 10 min
     RECO_FORYOU_CACHE_TTL: int = 300     # 5 min
     TASTE_VECTOR_CACHE_TTL: int = 3600   # 1h
+    USER_ACTIVITY_LIST_CACHE_TTL: int = 90   # last/most played rows
+    USER_ACTIVITY_COUNT_CACHE_TTL: int = 120  # total interactions count
+    COLD_START_INTERACTION_THRESHOLD: int = 5  # below = cold-start UX
 
     # --- Rate limiting (per-minute buckets) ---
     RATE_LIMIT_INTERACT: int = 120

@@ -82,6 +82,11 @@ flowchart LR
 | `mb:pop:{type}:{song_id}`          | none         | never (ground-truth counters)                      |
 | `mb:rl:{actor}:{route}:{minute}`   | 60 s         | self-expiring                                      |
 | `mb:yt:search:{sha1(q,limit)}`     | 1 h          | TTL only (queries are idempotent)                  |
+| `mb:reco:mood:*:seed` (suffix)     | 10 min       | cold-start mood lists limited to `external_source=seed` |
+| `mb:user:lastplayed:{user}` etc.   | ~90 s        | `POST /api/songs/*/interact` (same user)           |
+| `mb:user:icount:{user}`            | ~120 s       | `POST /api/songs/*/interact`                       |
+
+**Home bundle (signed-in)**: `GET /api/recommendations/home` returns `for_you`, `last_played`, `most_played`, optional `mood_starter` (cold users), plus `cold_start` and `interaction_count`. Sections are deduped server-side. Frontend shows horizontal rows on the home view.
 
 All cache reads wrap `redis.asyncio` errors and degrade gracefully:
 callers get `None` / empty state, the request still completes against

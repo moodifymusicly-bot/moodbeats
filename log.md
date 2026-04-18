@@ -1,5 +1,11 @@
 # MoodBeats Work Log
 
+## 2026-04-18
+- **Task**: Production-ready recommendation checklist (home feed + activity + cold-start)
+- **What changed**: Alembic `0002` composite index on `interactions`; `activity_service.py` (last/most played + `mb:user:icount`); `get_home_feed` + cold mood weights + seed-only mood path in `recommendation_service.py`; `GET /api/recommendations/home`; interact invalidates activity caches; frontend `getHomeRecommendations` + signed-in horizontal rows on home; tests `test_home_recommendations.py`; docs/changelog updated.
+- **Why**: One round-trip home surface for returning users, predictable cold-start starters, and less crowded anonymous mood loads (limit 12).
+- **Next action**: Deploy backend migration on VPS; `alembic upgrade head` in container or CI.
+
 ## 2026-03-31
 - **Task**: Creating Deployment Plan
 - **What changed**: Created `implementation.md` and `log.md`.

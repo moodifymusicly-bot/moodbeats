@@ -79,3 +79,6 @@ def test_mood_reco_cache_key_includes_user_segment():
     uid = uuid.uuid4()
     assert mood_reco_cache_key("happy", 20, None) == "mb:reco:mood:happy:20:u:anon"
     assert mood_reco_cache_key("happy", 20, uid) == f"mb:reco:mood:happy:20:u:{uid}"
+    assert mood_reco_cache_key("happy", 20, None, True) == (
+        "mb:reco:mood:happy:20:u:anon:seed"
+    )

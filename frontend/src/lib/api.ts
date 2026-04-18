@@ -143,6 +143,22 @@ export class ApiClient {
         return this.request<any>(`/api/recommendations/for-you?limit=${limit}`);
     }
 
+    /** Authenticated: home bundle (for-you, last/most played, optional mood starter). */
+    async getHomeRecommendations(params: {
+        starter_mood?: string;
+        mood_limit?: number;
+        foryou_limit?: number;
+        history_limit?: number;
+    } = {}) {
+        const q = new URLSearchParams();
+        if (params.starter_mood) q.set('starter_mood', params.starter_mood);
+        if (params.mood_limit != null) q.set('mood_limit', String(params.mood_limit));
+        if (params.foryou_limit != null) q.set('foryou_limit', String(params.foryou_limit));
+        if (params.history_limit != null) q.set('history_limit', String(params.history_limit));
+        const qs = q.toString();
+        return this.request<any>(`/api/recommendations/home${qs ? `?${qs}` : ''}`);
+    }
+
     // ===== Library (likes + playlists) =====
     async getLikes() {
         return this.request<any[]>('/api/library/likes');

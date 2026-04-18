@@ -50,6 +50,14 @@ function mapApiRecommendationToSong(s: Record<string, unknown>): RecommendedSong
     };
 }
 
+type HomeFeedData = {
+    for_you: RecommendedSong[];
+    last_played: RecommendedSong[];
+    most_played: RecommendedSong[];
+    mood_starter: RecommendedSong[];
+    cold_start: boolean;
+};
+
 // ===== VIEWS =====
 type AppView = 'landing' | 'home' | 'search' | 'playing' | 'camera' | 'media' | 'timeline';
 
@@ -84,6 +92,8 @@ export default function Home() {
     const [selectedSubMood, setSelectedSubMood] = useState<string | null>(null);
     const [subMoodLoading, setSubMoodLoading] = useState(false);
     const [moodRecLoading, setMoodRecLoading] = useState(false);
+    const [homeFeed, setHomeFeed] = useState<HomeFeedData | null>(null);
+    const [homeFeedLoading, setHomeFeedLoading] = useState(false);
 
     // Clerk auth + user preferences
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
@@ -136,7 +146,8 @@ export default function Home() {
     const loadRecommendationsForMood = useCallback(
         async (mood: MoodType): Promise<RecommendedSong[]> => {
             try {
-                const data = await api.getRecommendations(mood, 30);
+                const lim = isSignedIn ? 20 : 12;
+                const data = await api.getRecommendations(mood, lim);
                 let mapped = (data?.songs ?? []).map((s: Record<string, unknown>) =>
                     mapApiRecommendationToSong(s)
                 );
@@ -174,8 +185,40 @@ export default function Home() {
                 return [];
             }
         },
-        [api, likedSongs]
+        [api, likedSongs, isSignedIn]
     );
+
+    const loadHomeFeed = useCallback(async () => {
+        if (!isSignedIn) return;
+        setHomeFeedLoading(true);
+        try {
+            const starter = selectedMood || 'happy';
+            const data = await api.getHomeRecommendations({
+                starter_mood: starter,
+                mood_limit: 8,
+                foryou_limit: 10,
+                history_limit: 6,
+            });
+            const map = (rows: Record<string, unknown>[]) =>
+                rows.map((s) => mapApiRecommendationToSong(s));
+            setHomeFeed({
+                for_you: map(data.for_you ?? []),
+                last_played: map(data.last_played ?? []),
+                most_played: map(data.most_played ?? []),
+                mood_starter: map(data.mood_starter ?? []),
+                cold_start: Boolean(data.cold_start),
+            });
+        } catch (e) {
+            console.warn('loadHomeFeed failed', e);
+            setHomeFeed(null);
+        } finally {
+            setHomeFeedLoading(false);
+        }
+    }, [api, isSignedIn, selectedMood]);
+
+    useEffect(() => {
+        if (view === 'home' && isSignedIn) void loadHomeFeed();
+    }, [view, isSignedIn, loadHomeFeed]);
 
     // Load settings from localStorage on mount (settings stay local-only).
     useEffect(() => {
@@ -521,6 +564,7 @@ export default function Home() {
         setDetectedEmotion(null);
         setDetectedConfidence(0);
         setArtistFilter('');
+        setHomeFeed(null);
     };
 
     const handleMoodSelect = async (
@@ -614,6 +658,7 @@ export default function Home() {
             try {
                 const serverId = await resolveServerSongId(resolved);
                 if (serverId) await api.interactWithSong(serverId, 'play');
+                void loadHomeFeed();
             } catch (err) {
                 console.warn('play interaction failed', err);
             }
@@ -1175,6 +1220,52 @@ export default function Home() {
                                 onSignOut={() => signOut()}
                             />
                         </div>
+
+                        {isSignedIn && (homeFeedLoading || homeFeed) && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-3 space-y-4">
+                                {homeFeedLoading && !homeFeed && (
+                                    <div className="flex justify-center py-1">
+                                        <div className="w-6 h-6 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
+                                    </div>
+                                )}
+                                {homeFeed && [
+                                    { title: 'For you', songs: homeFeed.for_you },
+                                    { title: 'Last played', songs: homeFeed.last_played },
+                                    { title: 'Most played', songs: homeFeed.most_played },
+                                    ...(homeFeed.cold_start && homeFeed.mood_starter.length > 0
+                                        ? [{ title: 'Starter picks', songs: homeFeed.mood_starter }]
+                                        : []),
+                                ]
+                                    .filter((sec) => sec.songs.length > 0)
+                                    .map((section) => (
+                                        <div key={section.title}>
+                                            <p className="text-[9px] tracking-[0.35em] uppercase text-white/35 mb-2 font-semibold">
+                                                {section.title}
+                                            </p>
+                                            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+                                                {section.songs.map((song, i) => (
+                                                    <div
+                                                        key={`${section.title}-${song.id}-${i}`}
+                                                        className="min-w-[220px] max-w-[260px] flex-shrink-0"
+                                                    >
+                                                        <SongCard
+                                                            song={song}
+                                                            index={i}
+                                                            mood={(selectedMood || 'happy') as MoodType}
+                                                            isActive={currentSong?.id === song.id}
+                                                            isPlaying={isPlaying && currentSong?.id === song.id}
+                                                            onPlay={() => void handleSongPlay(song)}
+                                                            onLike={() => toggleLikeSong(song.id, song)}
+                                                            isLiked={likedSongs.has(song.id)}
+                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
 
                         {/* Start Detection / Camera Section */}
                         <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-2">

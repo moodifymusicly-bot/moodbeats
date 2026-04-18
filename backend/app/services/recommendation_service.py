@@ -14,6 +14,11 @@ from app.ml.hybrid_model import HybridRecommender
 from app.models.interaction import Interaction, MoodHistory
 from app.models.song import Song
 from app.services.cache import cache
+from app.services.activity_service import (
+    count_user_interactions,
+    get_last_played_songs_cached,
+    get_most_played_songs_cached,
+)
 from app.services.user_preference import (
     UserPreferenceProfile,
     build_preference_profile,
@@ -40,6 +45,10 @@ ALPHA = 0.4   # mood match
 BETA = 0.28   # user taste
 GAMMA = 0.2   # popularity
 DELTA = 0.12  # freshness
+
+# Cold-start (no taste vector yet): emphasize mood over generic similarity
+ALPHA_COLD = 0.52
+BETA_COLD = 0.18
 
 # Mood-agnostic "For you" blend
 FY_USER = 0.58
@@ -255,11 +264,15 @@ def _deserialize_results(data: list[dict]) -> list[dict]:
 
 
 def mood_reco_cache_key(
-    mood: str, limit: int, user_id: uuid.UUID | None
+    mood: str,
+    limit: int,
+    user_id: uuid.UUID | None,
+    seed_catalog_only: bool = False,
 ) -> str:
     """Redis key for mood-based recommendation lists (per-user ranking)."""
     segment = str(user_id) if user_id else "anon"
-    return f"mb:reco:mood:{mood}:{limit}:u:{segment}"
+    suf = ":seed" if seed_catalog_only else ""
+    return f"mb:reco:mood:{mood}:{limit}:u:{segment}{suf}"
 
 
 # --- public API ---
@@ -270,6 +283,7 @@ async def get_recommendations(
     user_id: uuid.UUID | None = None,
     limit: int = 20,
     exclude_ids: list[uuid.UUID] | None = None,
+    seed_catalog_only: bool = False,
 ) -> tuple[list[dict], bool]:
     """Mood-based recommendations. Returns `(results, cached)`.
 
@@ -277,7 +291,7 @@ async def get_recommendations(
     and skip penalties when `user_id` is set. Anonymous callers share
     ``u:anon``.
     """
-    cache_key = mood_reco_cache_key(mood, limit, user_id)
+    cache_key = mood_reco_cache_key(mood, limit, user_id, seed_catalog_only)
     if not exclude_ids:
         cached_blob = await cache.get_json(cache_key)
         if cached_blob:
@@ -286,6 +300,8 @@ async def get_recommendations(
     query = select(Song)
     if exclude_ids:
         query = query.where(Song.id.notin_(exclude_ids))
+    if seed_catalog_only:
+        query = query.where(Song.external_source == "seed")
 
     result = await db.execute(query)
     all_songs = result.scalars().all()
@@ -302,6 +318,10 @@ async def get_recommendations(
 
     counter_map = await _popularity_scores([s.id for s in all_songs])
 
+    alpha_eff, beta_eff = ALPHA, BETA
+    if user_id and profile and profile.unit_vector is None:
+        alpha_eff, beta_eff = ALPHA_COLD, BETA_COLD
+
     scored_songs = []
     for song in all_songs:
         mood_score = compute_mood_score(song, mood)
@@ -313,8 +333,8 @@ async def get_recommendations(
         user_sim = float(np.clip(0.82 * cos_sim + 0.18 * genre_b, 0.0, 1.0))
 
         final_score = (
-            ALPHA * mood_score
-            + BETA * user_sim
+            alpha_eff * mood_score
+            + beta_eff * user_sim
             + GAMMA * popularity_score
             + DELTA * freshness_score
         )
@@ -424,6 +444,82 @@ async def get_for_you_recommendations(
             ttl=settings.RECO_FORYOU_CACHE_TTL,
         )
     return top, False
+
+
+
+def _dedupe_rows(
+    seen: set[uuid.UUID], rows: list[dict], cap: int | None = None
+) -> list[dict]:
+    out: list[dict] = []
+    for r in rows:
+        sid = r["song"].id
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append(r)
+        if cap is not None and len(out) >= cap:
+            break
+    return out
+
+
+def _song_rows_from_songs(songs: list[Song]) -> list[dict]:
+    return [
+        {
+            "song": s,
+            "score": 1.0,
+            "mood_match": 0.5,
+            "user_similarity": 0.5,
+        }
+        for s in songs
+    ]
+
+
+async def get_home_feed(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    starter_mood: str,
+    mood_limit: int = 8,
+    foryou_limit: int = 10,
+    history_limit: int = 6,
+) -> dict:
+    """Assemble personalized home sections with cross-section deduplication."""
+    n = await count_user_interactions(db, user_id)
+    cold = n < settings.COLD_START_INTERACTION_THRESHOLD
+
+    for_you_raw, _ = await get_for_you_recommendations(
+        db, user_id, foryou_limit
+    )
+    last_songs = await get_last_played_songs_cached(db, user_id, history_limit)
+    most_songs = await get_most_played_songs_cached(db, user_id, history_limit)
+    last_raw = _song_rows_from_songs(last_songs)
+    most_raw = _song_rows_from_songs(most_songs)
+
+    mood_starter_raw: list[dict] = []
+    if cold:
+        mood_starter_raw, _ = await get_recommendations(
+            db,
+            starter_mood,
+            user_id,
+            mood_limit,
+            seed_catalog_only=True,
+        )
+
+    seen: set[uuid.UUID] = set()
+    for_you = _dedupe_rows(seen, for_you_raw)
+    last_played = _dedupe_rows(seen, last_raw)
+    most_played = _dedupe_rows(seen, most_raw)
+    mood_starter = _dedupe_rows(seen, mood_starter_raw) if cold else []
+
+    return {
+        "for_you": for_you,
+        "last_played": last_played,
+        "most_played": most_played,
+        "mood_starter": mood_starter,
+        "cold_start": cold,
+        "interaction_count": n,
+        "starter_mood": starter_mood,
+    }
 
 
 # --- mood history helpers (unchanged behavior) ---

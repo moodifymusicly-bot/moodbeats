@@ -12,9 +12,11 @@ wraps an `redis.asyncio.Redis` client configured against
 The key prefix convention is `mb:<ns>:<...>` (see user rule
 "Use Consistent Key Naming Conventions"). Namespaces in use:
 
-* `mb:reco:mood:{mood}:{limit}:u:{user_or_anon}` - mood lists (per-user rank)
+* `mb:reco:mood:{mood}:{limit}:u:{user_or_anon}[:seed]` - mood lists (optional `:seed` = seed-catalog only)
 * `mb:reco:foryou:{user}:{limit}` - personalized feed
 * `mb:taste:{user}`               - normalized 6-D taste vector
+* `mb:user:lastplayed:{user}` / `mb:user:mostplayed:{user}` - activity list id caches (TTL)
+* `mb:user:icount:{user}`         - total interaction count cache (TTL)
 * `mb:pop:{type}:{song}`          - popularity counters (no TTL)
 * `mb:rl:{actor}:{route}:{min}`   - rate-limit buckets
 * `mb:yt:search:{sha1}`           - YouTube search cache

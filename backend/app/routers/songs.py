@@ -19,6 +19,7 @@ from app.services.song_service import (
 )
 from app.services.auth_service import get_current_user, get_current_user_optional
 from app.services.cache import cache
+from app.services.activity_service import invalidate_user_activity_caches
 from app.models.user import User
 
 router = APIRouter(prefix="/api/songs", tags=["Songs"])
@@ -116,5 +117,6 @@ async def interact_with_song(
     await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
     await cache.delete_pattern(f"mb:reco:mood:*:u:{current_user.id}")
     await cache.delete(f"mb:taste:{current_user.id}")
+    await invalidate_user_activity_caches(current_user.id)
 
     return {"status": "ok"}

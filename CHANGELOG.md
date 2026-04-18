@@ -7,6 +7,7 @@ change lands on `main`.
 
 ### Added
 
+- **Home recommendation bundle**: `GET /api/recommendations/home` (auth) returns For you, last played, most played, and seed-catalog starter picks when the account is in cold-start. Postgres activity queries use index `ix_interactions_user_type_timestamp`; Redis caches activity lists and interaction counts with invalidation on play.
 - **Clerk-only authentication**: sign up / sign in / profile handled by
   Clerk's hosted UI. Backend verifies session JWTs against Clerk's JWKS
   (cached 1h in-process). `User.clerk_id` is the primary external

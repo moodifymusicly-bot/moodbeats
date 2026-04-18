@@ -3,8 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.config import get_settings
-from app.schemas.recommendation import RecommendationResponse, RecommendedSong
+from app.schemas.recommendation import (
+    HomeRecommendationResponse,
+    RecommendationResponse,
+    RecommendedSong,
+)
 from app.services.recommendation_service import (
+    get_home_feed,
     get_recommendations,
     get_for_you_recommendations,
 )
@@ -13,6 +18,35 @@ from app.models.user import User
 
 settings = get_settings()
 router = APIRouter(prefix="/api/recommendations", tags=["Recommendations"])
+
+
+
+def _rows_to_recommended_songs(results: list) -> list[RecommendedSong]:
+    return [
+        RecommendedSong(
+            id=r["song"].id,
+            title=r["song"].title,
+            artist=r["song"].artist,
+            album=r["song"].album,
+            genre=r["song"].genre,
+            mood_tag=r["song"].mood_tag,
+            duration=r["song"].duration,
+            cover_url=r["song"].cover_url,
+            audio_url=r["song"].audio_url,
+            preview_url=r["song"].preview_url,
+            external_source=getattr(r["song"], "external_source", "seed"),
+            external_id=getattr(r["song"], "external_id", None),
+            valence=r["song"].valence,
+            energy=r["song"].energy,
+            danceability=getattr(r["song"], "danceability", 0.5),
+            popularity=r["song"].popularity,
+            release_date=getattr(r["song"], "release_date", None),
+            score=r["score"],
+            mood_match=r["mood_match"],
+            user_similarity=r["user_similarity"],
+        )
+        for r in results
+    ]
 
 
 def _results_to_response(
@@ -48,6 +82,39 @@ def _results_to_response(
         songs=songs,
         total=len(songs),
         cached=cached,
+    )
+
+
+
+
+@router.get("/home", response_model=HomeRecommendationResponse)
+async def recommend_home(
+    starter_mood: str = Query("happy", description="Mood used for seed-catalog starter row when cold-start"),
+    mood_limit: int = Query(8, ge=1, le=30),
+    foryou_limit: int = Query(10, ge=1, le=50),
+    history_limit: int = Query(6, ge=1, le=30),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Signed-in home bundle: For you, last/most played, optional seed mood starter."""
+    if starter_mood not in settings.MOODS:
+        raise HTTPException(status_code=400, detail=f"Invalid mood: {starter_mood}")
+    bundle = await get_home_feed(
+        db,
+        current_user.id,
+        starter_mood=starter_mood,
+        mood_limit=mood_limit,
+        foryou_limit=foryou_limit,
+        history_limit=history_limit,
+    )
+    return HomeRecommendationResponse(
+        for_you=_rows_to_recommended_songs(bundle["for_you"]),
+        last_played=_rows_to_recommended_songs(bundle["last_played"]),
+        most_played=_rows_to_recommended_songs(bundle["most_played"]),
+        mood_starter=_rows_to_recommended_songs(bundle["mood_starter"]),
+        cold_start=bundle["cold_start"],
+        interaction_count=bundle["interaction_count"],
+        starter_mood=bundle["starter_mood"],
     )
 
 

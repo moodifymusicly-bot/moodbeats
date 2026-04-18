@@ -57,3 +57,14 @@ class MoodHistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class HomeRecommendationResponse(BaseModel):
+    for_you: list[RecommendedSong]
+    last_played: list[RecommendedSong]
+    most_played: list[RecommendedSong]
+    mood_starter: list[RecommendedSong]
+    cold_start: bool
+    interaction_count: int
+    starter_mood: str
+
