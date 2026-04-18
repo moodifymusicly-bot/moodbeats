@@ -5,11 +5,17 @@ change lands on `main`.
 
 ## [Unreleased]
 
+### Added
+
+- **Discover feed — Fresh Picks, Timeless Classics, Trending**: New `GET /api/recommendations/discover` endpoint categorizes songs by release date and popularity into curated sections. Works for both anonymous and signed-in users. The home screen now prominently displays these sections with icons and descriptions, making music discovery front and center.
+- **Prominent personalized recommendations**: Signed-in users see "Recommended for You", "Recently Played", and "Most Played" sections with clear labels and subtitles instead of barely-visible tiny text.
+
 ### Fixed
 
+- **Recommendation sections disappearing on navigation**: Going back to home no longer clears cached recommendation data.
 - **Playback when YouTube Data API is unavailable**: `/api/youtube/search` returns curated mood-based fallback videos instead of HTTP 503, so mood flows and search still produce playable tracks. Recommendations now include `youtube_id` for mapped seed songs and for catalog entries sourced from YouTube.
 
-### Added
+### Previously Added
 
 - **Home recommendation bundle**: `GET /api/recommendations/home` (auth) returns For you, last played, most played, and seed-catalog starter picks when the account is in cold-start. Postgres activity queries use index `ix_interactions_user_type_timestamp`; Redis caches activity lists and interaction counts with invalidation on play.
 - **Clerk-only authentication**: sign up / sign in / profile handled by

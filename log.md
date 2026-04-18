@@ -1,5 +1,13 @@
 # MoodBeats Work Log
 
+## 2026-04-18 (Discover feed: Fresh Picks, Timeless Classics, Trending)
+- **Task**: Recommendation sections not visible to users; no new vs old music categorization; home feed sections disappear on navigation.
+- **What changed**:
+  - **Backend**: Added `GET /api/recommendations/discover` endpoint with `fresh_picks`, `timeless_classics`, and `trending` sections. Works for both anonymous and authenticated users. Categorizes songs by release_date freshness and popularity. Added `DiscoverResponse` schema and `get_discover_feed` service.
+  - **Frontend**: Added discover feed (Fresh Picks, Timeless Classics, Trending Now) for ALL users on home view. Added personalized sections (Recommended for You, Recently Played, Most Played) with prominent icons, titles, and subtitles. Fixed `resetHomeState` clearing `homeFeed` and `discoverFeed` state. Increased label sizes from 9px to 14px bold with descriptive subtitles.
+- **Why**: Users couldn't find recommendation sections; labels were nearly invisible (9px); anonymous users saw no recommendations at all; no new vs old music distinction existed; navigating away from home destroyed the cached feed data.
+- **Next action**: Deploy to VPS via `git pull /tmp/moodbeats-deploy.bundle main && docker compose up -d --build`.
+
 ## 2026-04-18 (YouTube + recommendations hardening)
 - **Task**: Restore music playback when YouTube Data API key is missing or failing; clarify cold vs personalized recs; keep VPS deploy path working.
 - **What changed**: Curated fallback pools in `youtube_fallback.py`; `/api/youtube/search` no longer returns 503 without a key (uses fallback + `fallback: true` in JSON). Seed title→video map in `youtube_seed_resolve.py`; `RecommendedSong.youtube_id` populated for seed and YouTube catalog rows. Health JSON includes `youtube_data_api_configured`. Frontend maps `youtube_id` from API. `start-local-stack.sh` warns instead of hard-failing on placeholder YouTube key. Tests updated for new YouTube behavior.
