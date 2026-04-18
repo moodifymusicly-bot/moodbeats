@@ -24,3 +24,6 @@ frontend/.env*
 .DS_Store
 .vscode/
 .idea/
+
+# Offline deploy bundles (generated; do not commit)
+releases/*.bundle
