@@ -93,3 +93,9 @@
 - **Why**: GitHub `main` was behind local commits; password auth SSH worked from agent with `pexpect`; DB volume mismatch is a common failure mode after `.env` changes.
 - **Validation**: `https://148.135.138.197.nip.io/api/health` and `/` return 200.
 - **Next action**: Push `git push origin main` when GitHub SSH is available so the VPS can use `git pull` instead of bundles. **Rotate the VPS root password** (it was used in chat for this session).
+
+## 2026-04-18 (verify reco flow plan — automation)
+- **Task**: Implement automated checks for “plays, recommendations, playlists” verification plan.
+- **What changed**: Added [`backend/tests/test_plan_verify_reco_flow.py`](backend/tests/test_plan_verify_reco_flow.py) (interact `play`, anonymous path, `songs_played_log` presence in `page.tsx`/`TimelineView.tsx`, `for-you` + mood reco router wiring, library playlists). Added [`scripts/verify-reco-flow-plan.sh`](scripts/verify-reco-flow-plan.sh) (`uv run pytest …`; optional `--sql` when compose DB is up). Smoke: deployed landing loads at `https://148.135.138.197.nip.io/`.
+- **Why**: Encode plan steps as CI-friendly tests; full Clerk + Network tab remains manual.
+- **Next action**: Run `bash scripts/verify-reco-flow-plan.sh` in CI or before release.
