@@ -45,3 +45,32 @@
 - **Validation**: `python -m py_compile` over every new/changed Python file is green. Unit tests require deps from `backend/requirements.txt` to run (`pip install -r backend/requirements.txt && pytest -q` from `backend/`). Full integration smoke is the `Validation Plan` section of `implementation.md`.
 - **Security follow-up**: Rotate any Clerk / YouTube secrets that were ever present in the pre-fix `frontend/.env.local` (that file was tracked historically).
 - **Next action**: Run `./scripts/start-local-stack.sh` end-to-end with real `.env` values; commit with `milestone phase3-7: library, redis, alembic, tests, docs`.
+
+## 2026-04-18 (VPS Deployment — 148.135.138.197)
+- **Task**: Full VPS deployment with Caddy TLS + nip.io domain.
+- **What changed**:
+  - Fixed `scripts/debian-vps-bootstrap.sh`: port 3001→3000, removed `JWT_SECRET` (Clerk handles auth), proper key validation, auto-generates strong `POSTGRES_PASSWORD`/`REDIS_PASSWORD` if placeholders.
+  - Created `scripts/vps-deploy.sh`: local push+redeploy helper.
+  - Created `scripts/vps-setup-oneshot.sh`: self-contained VPS script that installs Docker, Caddy, clones repo, validates keys, builds stack, configures Caddy reverse proxy with TLS.
+  - All 58 uncommitted files committed to git.
+- **Why**: Completing the VPS hosting plan. GitHub push blocked by missing credential; pivoted to direct rsync/scp approach for the user.
+- **Next action**: User runs steps in walkthrough — scp .env + rsync code to VPS, then run `vps-setup-oneshot.sh`. After that, add domain to Clerk dashboard.
+
+## 2026-04-18 (VPS verification from agent)
+- **Task**: Confirm VPS app health and site behavior.
+- **What changed**: Added `scripts/vps-health-check.sh` (Docker/Caddy/local API+frontend + optional public HTTPS curl). Cursor environment cannot reach `148.135.138.197` (connection timeout) and SSH returns `Permission denied (publickey)` — verification must run on the user’s SSH session or laptop with keys.
+- **Why**: Operational checklist so one command on the VPS validates the full stack.
+- **Next action**: On the VPS, run `bash /opt/moodbeats/scripts/vps-health-check.sh` after `git pull` or `scp` the new script; fix any reported FAIL (compose up, Caddy, `.env`).
+
+## 2026-04-18 (site not loading — diagnosis)
+- **Task**: Explain blank/unreachable site and give fix path.
+- **What changed**: Added `scripts/vps-diagnose-remote-access.sh` (listen ports, UFW, Caddy, docker, local curls). External curl to `148.135.138.197` :80/:443 still **times out** from the agent network while DNS resolves — typical **cloud firewall** blocking 80/443 before traffic hits the VM.
+- **Why**: Separates “app broken on host” vs “internet cannot reach host.”
+- **Next action**: User runs diagnose script on VPS; if local curls OK, open TCP 80+443 on provider panel; then `systemctl restart caddy` and `docker compose up -d` as needed.
+
+## 2026-04-18 (VPS `/moodbeats` + Caddy)
+- **Task**: Create `/moodbeats`, deploy stack, fix “no such directory” and site not loading.
+- **What changed**: On Arch VPS `148.135.138.197`: installed `git`, `docker`, `docker-compose`, `caddy`; cloned `https://github.com/moodifymusicly-bot/moodbeats.git` to **`/moodbeats`**; symlink **`/opt/moodbeats` → `/moodbeats`**; copied production `.env` from dev machine; set `NEXT_PUBLIC_API_URL` / `ALLOWED_ORIGINS` / `ENVIRONMENT`; ran `docker compose up -d --build`. Caddy was **inactive** with default config — wrote site block (API → `8001`, frontend → host port **`3001`** to match published `docker-compose` on that clone), **`systemctl enable --now caddy`**. Added `scripts/vps-configure-caddy.sh` for repeatability.
+- **Why**: `/opt` was empty; previous scripts assumed `/opt/moodbeats`. Public site failed because nothing listened on 80/443 for the app.
+- **Validation**: `https://148.135.138.197.nip.io/api/health` and `/` return 200 from external curl after Caddy fix.
+- **Security**: Root password was shared in chat — user must **change SSH password** and prefer SSH keys; never commit credentials.
