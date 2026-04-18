@@ -1,5 +1,11 @@
 # MoodBeats Work Log
 
+## 2026-04-18 (Alembic KeyError 0001)
+- **Task**: Fix `KeyError: '0001'` when running `alembic upgrade` / `current` on VPS.
+- **Root cause**: `0001_init.py` uses `revision = "0001_init"` but `0002_*.py` had `down_revision = "0001"` (nonexistent id).
+- **What changed**: Set `down_revision = "0001_init"` in `backend/alembic/versions/0002_interactions_user_activity_idx.py`.
+- **Next action**: Redeploy backend image or copy the one-line fix on the VPS, then `docker compose exec backend alembic upgrade head`.
+
 ## 2026-04-18 (deploy — local agent)
 - **Task**: Ship recommendation work to VPS `148.135.138.197`.
 - **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Offline bundle: `releases/moodbeats-deploy.bundle` (gitignored). Added **`scripts/deploy-vps-from-dev.sh`** (scp bundle + `git pull` + `docker compose up -d --build`) and **`scripts/vps-authorize-dev-machine-key.sh`** (print lines to add this dev’s `~/.ssh/id_ed25519.pub` to root `authorized_keys` on the VPS). Automated SSH/scp from the agent still fails (no `ssh-askpass`, key not on server).
