@@ -25,8 +25,10 @@ const SERVER_SONG_ID_RE =
 
 function mapApiRecommendationToSong(s: Record<string, unknown>): RecommendedSong {
     const id = String(s.id);
+    const ytFromApi = s.youtube_id ? String(s.youtube_id) : undefined;
     const ext =
-        s.external_source === 'youtube' && s.external_id ? String(s.external_id) : undefined;
+        ytFromApi ||
+        (s.external_source === 'youtube' && s.external_id ? String(s.external_id) : undefined);
     return {
         id,
         title: String(s.title ?? ''),

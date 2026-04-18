@@ -13,12 +13,22 @@ from app.services.recommendation_service import (
     get_recommendations,
     get_for_you_recommendations,
 )
+from app.services.youtube_seed_resolve import resolve_seed_youtube_id
 from app.services.auth_service import get_current_user_optional, get_current_user
 from app.models.user import User
 
 settings = get_settings()
 router = APIRouter(prefix="/api/recommendations", tags=["Recommendations"])
 
+
+def _youtube_id_for_song(song) -> str | None:
+    src = getattr(song, "external_source", "seed") or "seed"
+    ext = getattr(song, "external_id", None)
+    if src == "youtube" and ext:
+        return ext
+    if src == "seed":
+        return resolve_seed_youtube_id(song.title, song.artist)
+    return None
 
 
 def _rows_to_recommended_songs(results: list) -> list[RecommendedSong]:
@@ -34,6 +44,7 @@ def _rows_to_recommended_songs(results: list) -> list[RecommendedSong]:
             cover_url=r["song"].cover_url,
             audio_url=r["song"].audio_url,
             preview_url=r["song"].preview_url,
+            youtube_id=_youtube_id_for_song(r["song"]),
             external_source=getattr(r["song"], "external_source", "seed"),
             external_id=getattr(r["song"], "external_id", None),
             valence=r["song"].valence,
@@ -64,6 +75,7 @@ def _results_to_response(
             cover_url=r["song"].cover_url,
             audio_url=r["song"].audio_url,
             preview_url=r["song"].preview_url,
+            youtube_id=_youtube_id_for_song(r["song"]),
             external_source=getattr(r["song"], "external_source", "seed"),
             external_id=getattr(r["song"], "external_id", None),
             valence=r["song"].valence,

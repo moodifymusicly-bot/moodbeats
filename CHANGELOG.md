@@ -5,6 +5,10 @@ change lands on `main`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Playback when YouTube Data API is unavailable**: `/api/youtube/search` returns curated mood-based fallback videos instead of HTTP 503, so mood flows and search still produce playable tracks. Recommendations now include `youtube_id` for mapped seed songs and for catalog entries sourced from YouTube.
+
 ### Added
 
 - **Home recommendation bundle**: `GET /api/recommendations/home` (auth) returns For you, last played, most played, and seed-catalog starter picks when the account is in cold-start. Postgres activity queries use index `ix_interactions_user_type_timestamp`; Redis caches activity lists and interaction counts with invalidation on play.

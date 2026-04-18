@@ -17,7 +17,10 @@ sessions survive browser changes and device swaps.
 - Redis is used for recommendation caching, taste-vector caching,
   popularity counters, rate limiting, and the YouTube search proxy.
 - YouTube Data API v3 is called server-side only. The API key never
-  ships to the browser.
+  ships to the browser. If the key is missing or Google returns an error,
+  `/api/youtube/search` serves curated mood-tagged fallback videos so
+  playback still works. Recommendations include `youtube_id` for a subset
+  of seed tracks via `youtube_seed_resolve.py` (exact title/artist map).
 - Alembic owns schema migrations. `create_all` is kept only as a dev
   fallback.
 

@@ -1,5 +1,11 @@
 # MoodBeats Work Log
 
+## 2026-04-18 (YouTube + recommendations hardening)
+- **Task**: Restore music playback when YouTube Data API key is missing or failing; clarify cold vs personalized recs; keep VPS deploy path working.
+- **What changed**: Curated fallback pools in `youtube_fallback.py`; `/api/youtube/search` no longer returns 503 without a key (uses fallback + `fallback: true` in JSON). Seed title→video map in `youtube_seed_resolve.py`; `RecommendedSong.youtube_id` populated for seed and YouTube catalog rows. Health JSON includes `youtube_data_api_configured`. Frontend maps `youtube_id` from API. `start-local-stack.sh` warns instead of hard-failing on placeholder YouTube key. Tests updated for new YouTube behavior.
+- **Why**: Seed recommendations never included video IDs; the client depended on YouTube search, which failed completely without a valid key — users saw empty playback.
+- **Next action**: On VPS, set `YOUTUBE_API_KEY` and `NEXT_PUBLIC_API_URL` to the public API URL, then `docker compose up -d --build`.
+
 ## 2026-04-18 (Alembic KeyError 0001)
 - **Task**: Fix `KeyError: '0001'` when running `alembic upgrade` / `current` on VPS.
 - **Root cause**: `0001_init.py` uses `revision = "0001_init"` but `0002_*.py` had `down_revision = "0001"` (nonexistent id).

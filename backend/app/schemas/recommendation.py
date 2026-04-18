@@ -21,6 +21,7 @@ class RecommendedSong(BaseModel):
     cover_url: Optional[str] = None
     audio_url: Optional[str] = None
     preview_url: Optional[str] = None
+    youtube_id: Optional[str] = None
     external_source: str = "seed"
     external_id: Optional[str] = None
     valence: float

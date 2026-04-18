@@ -25,6 +25,7 @@ export interface YouTubeSearchResponse {
     query: string;
     items: YouTubeSearchItem[];
     cached: boolean;
+    fallback?: boolean;
 }
 
 export class ApiClient {

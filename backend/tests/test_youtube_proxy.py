@@ -73,6 +73,7 @@ async def test_search_caches_results(fake_redis, app_with_youtube):
         assert r1.status_code == 200
         data1 = r1.json()
         assert data1["cached"] is False
+        assert data1.get("fallback") is False
         assert len(data1["items"]) == 2
         assert data1["items"][0]["duration"] == 3 * 60 + 42
         assert search.call_count == 1
@@ -88,7 +89,7 @@ async def test_search_caches_results(fake_redis, app_with_youtube):
 
 
 @pytest.mark.asyncio
-async def test_search_missing_key_returns_503(fake_redis, monkeypatch):
+async def test_search_missing_key_uses_curated_fallback(fake_redis, monkeypatch):
     from app.config import get_settings
     from app.routers import youtube as youtube_router
 
@@ -100,5 +101,9 @@ async def test_search_missing_key_returns_503(fake_redis, monkeypatch):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        r = await ac.get("/api/youtube/search", params={"q": "x"})
-        assert r.status_code == 503
+        r = await ac.get("/api/youtube/search", params={"q": "happy music"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["fallback"] is True
+        assert len(data["items"]) >= 1
+        assert data["items"][0]["external_id"]

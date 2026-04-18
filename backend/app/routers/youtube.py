@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from app.config import get_settings
 from app.services.auth_service import get_current_user_optional
 from app.services.cache import cache
+from app.services.youtube_fallback import pick_fallback_items
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class YouTubeSearchResponse(BaseModel):
     query: str
     items: list[YouTubeSearchItem]
     cached: bool = False
+    fallback: bool = False
 
 
 def _parse_iso_duration(s: str) -> int:
@@ -137,41 +139,58 @@ async def youtube_search(
     # Auth optional: anonymous browse is fine; rate limits still apply via middleware.
     current_user: User | None = Depends(get_current_user_optional),
 ):
-    if not settings.YOUTUBE_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="YouTube search is not configured on this server",
-        )
-
     key = _cache_key(q, limit)
     cached_blob = await cache.get_json(key)
     if cached_blob:
-        return YouTubeSearchResponse(
-            query=q,
-            items=[YouTubeSearchItem(**i) for i in cached_blob],
-            cached=True,
-        )
+        fb = False
+        if isinstance(cached_blob, list) and cached_blob and isinstance(cached_blob[0], dict):
+            fb = bool(cached_blob[0].get("fallback"))
+        items = [
+            YouTubeSearchItem(**{k: v for k, v in i.items() if k != "fallback"})
+            for i in cached_blob
+        ]
+        return YouTubeSearchResponse(query=q, items=items, cached=True, fallback=fb)
 
-    try:
-        items = await _fetch_youtube(q, limit)
-    except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "YouTube API error status=%s body=%s",
-            exc.response.status_code,
-            exc.response.text[:300],
-        )
-        raise HTTPException(
-            status_code=502, detail="YouTube API rejected the request"
-        ) from exc
-    except httpx.HTTPError as exc:
-        logger.warning("YouTube API transport error: %s", exc)
-        raise HTTPException(
-            status_code=504, detail="YouTube API unreachable"
-        ) from exc
+    items: list[YouTubeSearchItem] = []
+    used_fallback = False
 
+    if settings.YOUTUBE_API_KEY:
+        try:
+            items = await _fetch_youtube(q, limit)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "YouTube API error status=%s body=%s — using curated fallback",
+                exc.response.status_code,
+                exc.response.text[:300],
+            )
+            used_fallback = True
+        except httpx.HTTPError as exc:
+            logger.warning("YouTube API transport error: %s — using curated fallback", exc)
+            used_fallback = True
+    else:
+        logger.info("YOUTUBE_API_KEY unset — using curated fallback results")
+        used_fallback = True
+
+    if not items:
+        used_fallback = True
+        raw = pick_fallback_items(q, limit)
+        items = [
+            YouTubeSearchItem(
+                external_id=vid,
+                title=title,
+                artist=artist,
+                duration=dur,
+                cover_url=f"https://img.youtube.com/vi/{vid}/hqdefault.jpg",
+            )
+            for vid, title, artist, dur in raw
+        ]
+
+    payload = [{**i.model_dump(), "fallback": used_fallback} for i in items]
     await cache.set_json(
         key,
-        [i.model_dump() for i in items],
+        payload,
         ttl=settings.YOUTUBE_SEARCH_CACHE_TTL,
     )
-    return YouTubeSearchResponse(query=q, items=items, cached=False)
+    return YouTubeSearchResponse(
+        query=q, items=items, cached=False, fallback=used_fallback
+    )

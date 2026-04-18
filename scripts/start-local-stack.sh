@@ -54,10 +54,14 @@ check_var() {
 
 check_var CLERK_ISSUER
 check_var CLERK_SECRET_KEY
-check_var YOUTUBE_API_KEY
 check_var REDIS_PASSWORD
 check_var NEXT_PUBLIC_API_URL
 check_var NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
+if [[ -z "${YOUTUBE_API_KEY:-}" ]] || [[ "${YOUTUBE_API_KEY}" =~ ${placeholder_pattern} ]]; then
+  echo "WARN: YOUTUBE_API_KEY missing or still a placeholder — YouTube search will use curated" >&2
+  echo "      fallback results until you set a real Data API key in .env." >&2
+fi
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Missing or placeholder required values in .env:" >&2

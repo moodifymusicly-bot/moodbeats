@@ -1,6 +1,8 @@
 import logging
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,13 @@ class Settings(BaseSettings):
     # --- YouTube Data API (server-side only) ---
     YOUTUBE_API_KEY: str = ""
     YOUTUBE_SEARCH_CACHE_TTL: int = 3600  # 1h
+
+    @field_validator("YOUTUBE_API_KEY", mode="before")
+    @classmethod
+    def _strip_youtube_api_key(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
 
     # --- ML / recommendations ---
     EMBEDDING_DIM: int = 64

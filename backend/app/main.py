@@ -135,7 +135,10 @@ async def health():
     try:
         async with async_session() as db:
             await db.execute(text("SELECT 1"))
-        return {"status": "healthy"}
+        return {
+            "status": "healthy",
+            "youtube_data_api_configured": bool(settings.YOUTUBE_API_KEY),
+        }
     except Exception:
         logger.exception("Health check DB probe failed")
         return JSONResponse(
