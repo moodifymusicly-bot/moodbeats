@@ -69,3 +69,11 @@ class HomeRecommendationResponse(BaseModel):
     interaction_count: int
     starter_mood: str
 
+
+class DiscoverResponse(BaseModel):
+    """Curated discovery sections: fresh picks, timeless classics, and trending."""
+    fresh_picks: list[RecommendedSong]
+    timeless_classics: list[RecommendedSong]
+    trending: list[RecommendedSong]
+    suggested_mood: str
+

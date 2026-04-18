@@ -4,11 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.config import get_settings
 from app.schemas.recommendation import (
+    DiscoverResponse,
     HomeRecommendationResponse,
     RecommendationResponse,
     RecommendedSong,
 )
 from app.services.recommendation_service import (
+    get_discover_feed,
     get_home_feed,
     get_recommendations,
     get_for_you_recommendations,
@@ -97,6 +99,30 @@ def _results_to_response(
     )
 
 
+
+
+@router.get("/discover", response_model=DiscoverResponse)
+async def recommend_discover(
+    mood: str = Query("happy", description="Mood context for discovery scoring"),
+    limit: int = Query(8, ge=1, le=20),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """Curated discovery feed: fresh picks, timeless classics, trending.
+
+    Works for both anonymous and signed-in users.
+    """
+    if mood not in settings.MOODS:
+        raise HTTPException(status_code=400, detail=f"Invalid mood: {mood}")
+
+    user_id = current_user.id if current_user else None
+    bundle = await get_discover_feed(db, user_id, limit, mood)
+    return DiscoverResponse(
+        fresh_picks=_rows_to_recommended_songs(bundle["fresh_picks"]),
+        timeless_classics=_rows_to_recommended_songs(bundle["timeless_classics"]),
+        trending=_rows_to_recommended_songs(bundle["trending"]),
+        suggested_mood=bundle["suggested_mood"],
+    )
 
 
 @router.get("/home", response_model=HomeRecommendationResponse)

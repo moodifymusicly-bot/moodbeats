@@ -144,6 +144,15 @@ export class ApiClient {
         return this.request<any>(`/api/recommendations/for-you?limit=${limit}`);
     }
 
+    /** Discovery feed: fresh picks, timeless classics, trending. Works for anonymous + signed-in. */
+    async getDiscoverFeed(params: { mood?: string; limit?: number } = {}) {
+        const q = new URLSearchParams();
+        if (params.mood) q.set('mood', params.mood);
+        if (params.limit != null) q.set('limit', String(params.limit));
+        const qs = q.toString();
+        return this.request<any>(`/api/recommendations/discover${qs ? `?${qs}` : ''}`);
+    }
+
     /** Authenticated: home bundle (for-you, last/most played, optional mood starter). */
     async getHomeRecommendations(params: {
         starter_mood?: string;

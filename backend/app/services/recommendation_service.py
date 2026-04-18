@@ -522,6 +522,117 @@ async def get_home_feed(
     }
 
 
+async def get_discover_feed(
+    db: AsyncSession,
+    user_id: uuid.UUID | None = None,
+    limit: int = 8,
+    mood: str = "happy",
+) -> dict:
+    """Curated discovery feed: fresh picks, timeless classics, trending.
+
+    Works for both anonymous and authenticated users. Cached for 10 min.
+    """
+    segment = str(user_id) if user_id else "anon"
+    cache_key = f"mb:discover:{segment}:{mood}:{limit}"
+    cached_blob = await cache.get_json(cache_key)
+    if cached_blob:
+        return {
+            "fresh_picks": _deserialize_results(cached_blob["fresh_picks"]),
+            "timeless_classics": _deserialize_results(cached_blob["timeless_classics"]),
+            "trending": _deserialize_results(cached_blob["trending"]),
+            "suggested_mood": cached_blob.get("suggested_mood", mood),
+        }
+
+    result = await db.execute(select(Song))
+    all_songs = result.scalars().all()
+    if not all_songs:
+        return {
+            "fresh_picks": [],
+            "timeless_classics": [],
+            "trending": [],
+            "suggested_mood": mood,
+        }
+
+    profile: UserPreferenceProfile | None = None
+    liked_genres: list[str] = []
+    if user_id:
+        profile, liked_genres = await _get_or_build_profile(db, user_id)
+
+    user_unit = profile.unit_vector if profile else None
+    counter_map = await _popularity_scores([s.id for s in all_songs])
+
+    now = datetime.utcnow()
+    fresh_cutoff_days = 3650  # songs < 10 years old are "fresh"
+
+    scored_fresh: list[dict] = []
+    scored_classic: list[dict] = []
+    scored_trending: list[dict] = []
+
+    for song in all_songs:
+        mood_score = compute_mood_score(song, mood)
+        popularity_score = _blend_popularity(song, counter_map)
+        freshness_score = compute_freshness_score(song)
+        cos_sim = cosine_user_song_similarity(user_unit, song) if user_unit is not None else 0.41
+        genre_b = _genre_overlap_bonus(song, liked_genres)
+        user_sim = float(np.clip(0.82 * cos_sim + 0.18 * genre_b, 0.0, 1.0))
+
+        base_score = 0.3 * mood_score + 0.25 * user_sim + 0.25 * popularity_score + 0.2 * freshness_score
+        base_score = float(max(0.0, base_score))
+
+        row = {
+            "song": song,
+            "score": round(base_score, 4),
+            "mood_match": round(mood_score, 4),
+            "user_similarity": round(user_sim, 4),
+        }
+
+        days_old = (now - song.release_date).days if song.release_date else 9999
+        is_fresh = days_old < fresh_cutoff_days
+
+        if is_fresh:
+            fresh_row = dict(row)
+            fresh_row["score"] = round(base_score * 1.15 + 0.2 * freshness_score, 4)
+            scored_fresh.append(fresh_row)
+
+        if not is_fresh or popularity_score > 0.6:
+            classic_row = dict(row)
+            classic_row["score"] = round(base_score * 1.1 + 0.25 * popularity_score, 4)
+            scored_classic.append(classic_row)
+
+        trending_row = dict(row)
+        live_pop = counter_map.get(song.id, 0)
+        trending_row["score"] = round(base_score + 0.35 * live_pop + 0.15 * freshness_score, 4)
+        scored_trending.append(trending_row)
+
+    scored_fresh.sort(key=lambda x: x["score"], reverse=True)
+    scored_classic.sort(key=lambda x: x["score"], reverse=True)
+    scored_trending.sort(key=lambda x: x["score"], reverse=True)
+
+    fresh_picks = scored_fresh[:limit]
+    timeless_classics = scored_classic[:limit]
+
+    seen_ids = {r["song"].id for r in fresh_picks} | {r["song"].id for r in timeless_classics}
+    trending = [r for r in scored_trending if r["song"].id not in seen_ids][:limit]
+
+    await cache.set_json(
+        cache_key,
+        {
+            "fresh_picks": _serialize_results(fresh_picks),
+            "timeless_classics": _serialize_results(timeless_classics),
+            "trending": _serialize_results(trending),
+            "suggested_mood": mood,
+        },
+        ttl=settings.RECO_MOOD_CACHE_TTL,
+    )
+
+    return {
+        "fresh_picks": fresh_picks,
+        "timeless_classics": timeless_classics,
+        "trending": trending,
+        "suggested_mood": mood,
+    }
+
+
 # --- mood history helpers (unchanged behavior) ---
 
 async def record_mood(

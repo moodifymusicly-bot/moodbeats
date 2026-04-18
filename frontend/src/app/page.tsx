@@ -60,6 +60,13 @@ type HomeFeedData = {
     cold_start: boolean;
 };
 
+type DiscoverFeedData = {
+    fresh_picks: RecommendedSong[];
+    timeless_classics: RecommendedSong[];
+    trending: RecommendedSong[];
+    suggested_mood: string;
+};
+
 // ===== VIEWS =====
 type AppView = 'landing' | 'home' | 'search' | 'playing' | 'camera' | 'media' | 'timeline';
 
@@ -96,6 +103,8 @@ export default function Home() {
     const [moodRecLoading, setMoodRecLoading] = useState(false);
     const [homeFeed, setHomeFeed] = useState<HomeFeedData | null>(null);
     const [homeFeedLoading, setHomeFeedLoading] = useState(false);
+    const [discoverFeed, setDiscoverFeed] = useState<DiscoverFeedData | null>(null);
+    const [discoverLoading, setDiscoverLoading] = useState(false);
 
     // Clerk auth + user preferences
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
@@ -218,9 +227,33 @@ export default function Home() {
         }
     }, [api, isSignedIn, selectedMood]);
 
+    const loadDiscoverFeed = useCallback(async () => {
+        setDiscoverLoading(true);
+        try {
+            const mood = selectedMood || 'happy';
+            const data = await api.getDiscoverFeed({ mood, limit: 8 });
+            const map = (rows: Record<string, unknown>[]) =>
+                rows.map((s) => mapApiRecommendationToSong(s));
+            setDiscoverFeed({
+                fresh_picks: map(data.fresh_picks ?? []),
+                timeless_classics: map(data.timeless_classics ?? []),
+                trending: map(data.trending ?? []),
+                suggested_mood: data.suggested_mood || mood,
+            });
+        } catch (e) {
+            console.warn('loadDiscoverFeed failed', e);
+        } finally {
+            setDiscoverLoading(false);
+        }
+    }, [api, selectedMood]);
+
     useEffect(() => {
         if (view === 'home' && isSignedIn) void loadHomeFeed();
     }, [view, isSignedIn, loadHomeFeed]);
+
+    useEffect(() => {
+        if (view === 'home') void loadDiscoverFeed();
+    }, [view, loadDiscoverFeed]);
 
     // Load settings from localStorage on mount (settings stay local-only).
     useEffect(() => {
@@ -566,7 +599,6 @@ export default function Home() {
         setDetectedEmotion(null);
         setDetectedConfidence(0);
         setArtistFilter('');
-        setHomeFeed(null);
     };
 
     const handleMoodSelect = async (
@@ -1223,32 +1255,87 @@ export default function Home() {
                             />
                         </div>
 
-                        {isSignedIn && (homeFeedLoading || homeFeed) && (
-                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-3 space-y-4">
+                        {/* ===== DISCOVER FEED: Fresh Picks, Classics, Trending (all users) ===== */}
+                        {songs.length === 0 && (discoverLoading || discoverFeed) && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4 space-y-5">
+                                {discoverLoading && !discoverFeed && (
+                                    <div className="flex items-center justify-center gap-3 py-4">
+                                        <div className="w-6 h-6 border-2 border-white/20 border-t-purple-400/70 rounded-full animate-spin" />
+                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Loading recommendations...</p>
+                                    </div>
+                                )}
+                                {discoverFeed && [
+                                    { title: 'Fresh Picks', subtitle: 'New & trending music for you', icon: '✨', songs: discoverFeed.fresh_picks, accent: '#a78bfa' },
+                                    { title: 'Timeless Classics', subtitle: 'Legendary tracks that never get old', icon: '💎', songs: discoverFeed.timeless_classics, accent: '#fbbf24' },
+                                    { title: 'Trending Now', subtitle: 'What everyone is listening to', icon: '🔥', songs: discoverFeed.trending, accent: '#f97316' },
+                                ]
+                                    .filter((sec) => sec.songs.length > 0)
+                                    .map((section) => (
+                                        <div key={section.title}>
+                                            <div className="flex items-center gap-2 mb-2.5">
+                                                <span className="text-base">{section.icon}</span>
+                                                <div>
+                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
+                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                                                {section.songs.map((song, i) => (
+                                                    <div
+                                                        key={`discover-${section.title}-${song.id}-${i}`}
+                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
+                                                    >
+                                                        <SongCard
+                                                            song={song}
+                                                            index={i}
+                                                            mood={(selectedMood || 'happy') as MoodType}
+                                                            isActive={currentSong?.id === song.id}
+                                                            isPlaying={isPlaying && currentSong?.id === song.id}
+                                                            onPlay={() => void handleSongPlay(song)}
+                                                            onLike={() => toggleLikeSong(song.id, song)}
+                                                            isLiked={likedSongs.has(song.id)}
+                                                            onAddToPlaylist={() => setAddToPlaylistSong(song)}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
+
+                        {/* ===== PERSONALIZED HOME FEED (signed-in users) ===== */}
+                        {songs.length === 0 && isSignedIn && (homeFeedLoading || homeFeed) && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
                                 {homeFeedLoading && !homeFeed && (
-                                    <div className="flex justify-center py-1">
-                                        <div className="w-6 h-6 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
+                                    <div className="flex items-center justify-center gap-3 py-3">
+                                        <div className="w-5 h-5 border-2 border-white/20 border-t-white/50 rounded-full animate-spin" />
+                                        <p className="text-xs tracking-widest uppercase text-white/40 font-semibold">Personalizing...</p>
                                     </div>
                                 )}
                                 {homeFeed && [
-                                    { title: 'For you', songs: homeFeed.for_you },
-                                    { title: 'Last played', songs: homeFeed.last_played },
-                                    { title: 'Most played', songs: homeFeed.most_played },
+                                    { title: 'Recommended for You', subtitle: 'Based on your listening history', icon: '🎯', songs: homeFeed.for_you },
+                                    { title: 'Recently Played', subtitle: 'Pick up where you left off', icon: '🕐', songs: homeFeed.last_played },
+                                    { title: 'Your Most Played', subtitle: 'Your all-time favorites', icon: '🏆', songs: homeFeed.most_played },
                                     ...(homeFeed.cold_start && homeFeed.mood_starter.length > 0
-                                        ? [{ title: 'Starter picks', songs: homeFeed.mood_starter }]
+                                        ? [{ title: 'Starter Picks', subtitle: 'Get started with these curated tracks', icon: '🌱', songs: homeFeed.mood_starter }]
                                         : []),
                                 ]
                                     .filter((sec) => sec.songs.length > 0)
                                     .map((section) => (
                                         <div key={section.title}>
-                                            <p className="text-[9px] tracking-[0.35em] uppercase text-white/35 mb-2 font-semibold">
-                                                {section.title}
-                                            </p>
-                                            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+                                            <div className="flex items-center gap-2 mb-2.5">
+                                                <span className="text-base">{section.icon}</span>
+                                                <div>
+                                                    <h3 className="text-sm font-bold tracking-wide text-white/90">{section.title}</h3>
+                                                    <p className="text-[10px] text-white/35 tracking-wide">{section.subtitle}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
                                                 {section.songs.map((song, i) => (
                                                     <div
-                                                        key={`${section.title}-${song.id}-${i}`}
-                                                        className="min-w-[220px] max-w-[260px] flex-shrink-0"
+                                                        key={`home-${section.title}-${song.id}-${i}`}
+                                                        className="min-w-[200px] max-w-[240px] flex-shrink-0"
                                                     >
                                                         <SongCard
                                                             song={song}
