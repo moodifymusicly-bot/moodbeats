@@ -1,5 +1,10 @@
 # MoodBeats Work Log
 
+## 2026-04-18 (deploy — local agent)
+- **Task**: Ship recommendation work to VPS `148.135.138.197`.
+- **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Wrote offline bundle `/tmp/moodbeats-reco-deploy.bundle`. SSH to VPS from this environment still **Permission denied (publickey,password)** — user must deploy from their connected session.
+- **Next action**: On a machine with GitHub access: `git push origin main`. On the VPS: `cd /moodbeats && git pull origin main && docker compose up -d --build` (or `scp /tmp/moodbeats-reco-deploy.bundle root@VPS:/root/` then `bash scripts/vps-pull-bundle-rebuild.sh /root/moodbeats-reco-deploy.bundle`). Confirm `alembic` reaches `0002` via logs or `docker compose exec backend alembic current`.
+
 ## 2026-04-18
 - **Task**: Production-ready recommendation checklist (home feed + activity + cold-start)
 - **What changed**: Alembic `0002` composite index on `interactions`; `activity_service.py` (last/most played + `mb:user:icount`); `get_home_feed` + cold mood weights + seed-only mood path in `recommendation_service.py`; `GET /api/recommendations/home`; interact invalidates activity caches; frontend `getHomeRecommendations` + signed-in horizontal rows on home; tests `test_home_recommendations.py`; docs/changelog updated.
