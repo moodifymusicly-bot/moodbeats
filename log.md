@@ -80,3 +80,9 @@
 - **What changed**: **Backend**: `RecommendedSong` includes `external_source`, `external_id`, `danceability`, `release_date`; `mood_reco_cache_key()` / per-user mood Redis keys; `mb:reco:mood:*:u:{user}` invalidation on interact; library **like** records `Interaction(type=like)` when the like row is new; `app/schemas/__init__.py` fixed stale exports. **Frontend**: `page.tsx` loads `/api/recommendations` with YouTube fallback when empty; removed hardcoded `getSampleSongs`; lazy YouTube search on play when no `youtube_id`/`audio_url`; UUID `resolveServerSongId` short-circuit; loading state. **Tests**: `test_mood_reco_cache_key_includes_user_segment`, `test_library_like_interaction.py`. **Docs**: `implementation.md` APIs note.
 - **Why**: Users now get individualized, growing lists tied to `interactions` + Redis; hearts feed the taste model.
 - **Next action**: Optional “For you” surface in UI; tune lazy-resolve caching if search volume is high.
+
+## 2026-04-18 (push to VPS — agent limitation)
+- **Task**: Deploy latest `main` to VPS `148.135.138.197`.
+- **What changed**: `git push origin main` failed here with **Permission denied (publickey)** (no GitHub credentials on this host). SSH to the VPS failed with **Permission denied (publickey,password)** (no VPS key/password in this environment). Recreated **`/tmp/moodbeats-main.bundle`** (full history through current `main`) for offline transfer.
+- **Why**: Deployment requires credentials available only on the user’s machine.
+- **Next action**: From a machine with GitHub access: `git push origin main`. On the VPS: `cd /moodbeats && git pull origin main && docker compose up -d --build`. **Or** `scp /tmp/moodbeats-main.bundle root@148.135.138.197:/tmp/` then on VPS: `bash scripts/vps-pull-bundle-rebuild.sh /tmp/moodbeats-main.bundle` (script must exist in repo on server, or copy it first).
