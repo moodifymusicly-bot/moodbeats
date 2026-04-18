@@ -7,8 +7,19 @@ RUN npm ci
 
 COPY . .
 
+# --- Build-time public config (baked into the client bundle) ---
+# API_URL the browser should call and Clerk's publishable key are required.
+# YouTube key is intentionally NOT accepted here -- it is server-side only.
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
+# Fail loudly if required build args are missing, rather than shipping a
+# broken bundle that silently falls back to placeholders at runtime.
+RUN test -n "$NEXT_PUBLIC_API_URL" \
+ && test -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
+ || (echo "Missing required build args NEXT_PUBLIC_API_URL or NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" && exit 1)
 
 RUN npm run build
 

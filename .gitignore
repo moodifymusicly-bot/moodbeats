@@ -9,4 +9,17 @@ Thumbs.db
 
 __pycache__/
 *.pyc
+
+# Env + secrets
 .env
+.env.*
+!.env.example
+frontend/.env*
+!frontend/.env.local.example
+
+# Local data
+*.sqlite
+*.sqlite3
+.DS_Store
+.vscode/
+.idea/

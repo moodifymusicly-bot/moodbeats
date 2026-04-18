@@ -4,9 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.song import SongResponse, SongListResponse, InteractionCreate
-from app.services.song_service import get_songs, get_song_by_id, record_interaction
-from app.services.auth_service import get_current_user_optional
+from app.schemas.song import (
+    InteractionCreate,
+    SongListResponse,
+    SongResponse,
+    SongUpsertInput,
+    SongUpsertResponse,
+)
+from app.services.song_service import (
+    get_songs,
+    get_song_by_id,
+    record_interaction,
+    upsert_song_from_external,
+)
+from app.services.auth_service import get_current_user, get_current_user_optional
+from app.services.cache import cache
 from app.models.user import User
 
 router = APIRouter(prefix="/api/songs", tags=["Songs"])
@@ -37,6 +49,41 @@ async def list_songs(
     )
 
 
+@router.post("/upsert", response_model=SongUpsertResponse)
+async def upsert_song(
+    payload: SongUpsertInput,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create-or-fetch a canonical song row for a YouTube result.
+
+    Required for the hybrid catalog: seed songs stay as-is, but anything
+    the user actually plays or likes from YouTube search becomes part of
+    the recommendation pool.
+    """
+    song, created = await upsert_song_from_external(
+        db,
+        external_id=payload.external_id,
+        title=payload.title,
+        artist=payload.artist,
+        duration=payload.duration,
+        cover_url=payload.cover_url,
+        album=payload.album,
+        genre=payload.genre,
+        mood_tag=payload.mood_tag,
+    )
+    if created:
+        # New song in the pool -> every user's mood rec list is stale.
+        await cache.delete_pattern("mb:reco:mood:*")
+        await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
+        await cache.delete(f"mb:taste:{current_user.id}")
+
+    return SongUpsertResponse(
+        **SongResponse.model_validate(song).model_dump(),
+        created=created,
+    )
+
+
 @router.get("/{song_id}", response_model=SongResponse)
 async def get_song(song_id: str, db: AsyncSession = Depends(get_db)):
     parsed_id = _parse_uuid(song_id)
@@ -60,4 +107,13 @@ async def interact_with_song(
         db, current_user.id, parsed_id,
         data.interaction_type, data.listen_duration
     )
+
+    # Popularity counters (ground truth, no TTL). Best-effort; we never fail
+    # an interaction because Redis is down.
+    await cache.incr(f"mb:pop:{data.interaction_type}:{parsed_id}")
+
+    # User taste + personal feed are now stale; scope-limited invalidation.
+    await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
+    await cache.delete(f"mb:taste:{current_user.id}")
+
     return {"status": "ok"}

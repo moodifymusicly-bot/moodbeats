@@ -1,26 +1,43 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-class ApiClient {
-    private token: string | null = null;
+export type TokenProvider = () => Promise<string | null>;
 
-    constructor() {
-        if (typeof window !== 'undefined') {
-            this.token = localStorage.getItem('token');
-        }
+export interface UpsertSongInput {
+    external_id: string;
+    title: string;
+    artist: string;
+    duration: number;
+    cover_url?: string | null;
+    mood_tag?: string | null;
+    album?: string | null;
+    genre?: string | null;
+}
+
+export interface YouTubeSearchItem {
+    external_id: string;
+    title: string;
+    artist: string;
+    duration: number;
+    cover_url: string | null;
+}
+
+export interface YouTubeSearchResponse {
+    query: string;
+    items: YouTubeSearchItem[];
+    cached: boolean;
+}
+
+export class ApiClient {
+    private getToken: TokenProvider;
+
+    constructor(getToken?: TokenProvider) {
+        // No in-memory token cache. We always ask the token provider (Clerk)
+        // so that refreshed short-lived JWTs flow through on every request.
+        this.getToken = getToken ?? (async () => null);
     }
 
-    setToken(token: string) {
-        this.token = token;
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('token', token);
-        }
-    }
-
-    clearToken() {
-        this.token = null;
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('token');
-        }
+    setTokenProvider(provider: TokenProvider) {
+        this.getToken = provider;
     }
 
     private async request<T>(
@@ -32,8 +49,14 @@ class ApiClient {
             ...((options.headers as Record<string, string>) || {}),
         };
 
-        if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
+        try {
+            const token = await this.getToken();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+        } catch {
+            // No token available (signed out); proceed anonymously. Endpoints that
+            // require auth will 401 and UI can prompt sign-in.
         }
 
         const response = await fetch(`${API_URL}${endpoint}`, {
@@ -42,37 +65,27 @@ class ApiClient {
         });
 
         if (!response.ok) {
-            const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+            let error: { detail?: string } = {};
+            try {
+                error = await response.json();
+            } catch {
+                error = { detail: `HTTP ${response.status}` };
+            }
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
 
+        if (response.status === 204) {
+            return undefined as unknown as T;
+        }
         return response.json();
     }
 
-    // Auth
-    async register(username: string, email: string, password: string) {
-        const data = await this.request<any>('/api/auth/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password }),
-        });
-        this.setToken(data.access_token);
-        return data;
-    }
-
-    async login(email: string, password: string) {
-        const data = await this.request<any>('/api/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ email, password }),
-        });
-        this.setToken(data.access_token);
-        return data;
-    }
-
+    // ===== Auth =====
     async getMe() {
         return this.request<any>('/api/auth/me');
     }
 
-    // Moods
+    // ===== Moods =====
     async getMoods() {
         return this.request<any[]>('/api/moods');
     }
@@ -88,7 +101,7 @@ class ApiClient {
         return this.request<any[]>('/api/moods/history');
     }
 
-    // Songs
+    // ===== Songs =====
     async getSongs(params: { page?: number; per_page?: number; mood?: string; search?: string } = {}) {
         const query = new URLSearchParams();
         if (params.page) query.set('page', String(params.page));
@@ -102,6 +115,13 @@ class ApiClient {
         return this.request<any>(`/api/songs/${id}`);
     }
 
+    async upsertSong(input: UpsertSongInput) {
+        return this.request<any>('/api/songs/upsert', {
+            method: 'POST',
+            body: JSON.stringify(input),
+        });
+    }
+
     async interactWithSong(songId: string, type: string, duration?: number) {
         return this.request<any>(`/api/songs/${songId}/interact`, {
             method: 'POST',
@@ -113,19 +133,73 @@ class ApiClient {
         });
     }
 
-    // Recommendations
+    // ===== Recommendations =====
     async getRecommendations(mood: string, limit: number = 20) {
-        return this.request<any>(`/api/recommendations?mood=${mood}&limit=${limit}`);
+        return this.request<any>(`/api/recommendations?mood=${encodeURIComponent(mood)}&limit=${limit}`);
     }
 
-    // Health
+    /** Authenticated: mood-agnostic personalized feed from interaction history. */
+    async getForYouRecommendations(limit: number = 20) {
+        return this.request<any>(`/api/recommendations/for-you?limit=${limit}`);
+    }
+
+    // ===== Library (likes + playlists) =====
+    async getLikes() {
+        return this.request<any[]>('/api/library/likes');
+    }
+
+    async likeSong(songId: string) {
+        return this.request<any>(`/api/library/likes/${songId}`, { method: 'POST' });
+    }
+
+    async unlikeSong(songId: string) {
+        return this.request<any>(`/api/library/likes/${songId}`, { method: 'DELETE' });
+    }
+
+    async getPlaylists() {
+        return this.request<any[]>('/api/library/playlists');
+    }
+
+    async createPlaylist(name: string) {
+        return this.request<any>('/api/library/playlists', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        });
+    }
+
+    async deletePlaylist(playlistId: string) {
+        return this.request<any>(`/api/library/playlists/${playlistId}`, { method: 'DELETE' });
+    }
+
+    async getPlaylist(playlistId: string) {
+        return this.request<any>(`/api/library/playlists/${playlistId}`);
+    }
+
+    async addSongToPlaylist(playlistId: string, songId: string) {
+        return this.request<any>(`/api/library/playlists/${playlistId}/songs`, {
+            method: 'POST',
+            body: JSON.stringify({ song_id: songId }),
+        });
+    }
+
+    async removeSongFromPlaylist(playlistId: string, songId: string) {
+        return this.request<any>(`/api/library/playlists/${playlistId}/songs/${songId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    // ===== YouTube (server-side proxy; key never ships to browser) =====
+    async searchYouTube(q: string, limit: number = 12): Promise<YouTubeSearchResponse> {
+        const query = new URLSearchParams({ q, limit: String(limit) });
+        return this.request<YouTubeSearchResponse>(`/api/youtube/search?${query.toString()}`);
+    }
+
+    // ===== Health =====
     async healthCheck() {
         return this.request<any>('/api/health');
     }
-
-    get isAuthenticated(): boolean {
-        return !!this.token;
-    }
 }
 
+// Default singleton (anonymous). Client components should obtain an authenticated
+// client via `useApi()` (see `src/lib/useApi.ts`).
 export const api = new ApiClient();

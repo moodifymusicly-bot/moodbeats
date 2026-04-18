@@ -36,3 +36,30 @@ class InteractionCreate(BaseModel):
     song_id: uuid.UUID
     interaction_type: Literal["play", "skip", "like", "save"]
     listen_duration: Optional[float] = None
+
+
+class SongUpsertInput(BaseModel):
+    """Payload sent when the frontend plays/likes a YouTube result.
+
+    Mirrors `UpsertSongInput` in frontend/src/lib/api.ts. Only `external_id`
+    (YouTube video id) + user-visible fields are required; audio features
+    are inferred server-side from `mood_tag` so that recommender math
+    stays consistent with seed rows.
+    """
+
+    external_id: str
+    title: str
+    artist: str
+    duration: int = 0
+    cover_url: Optional[str] = None
+    album: Optional[str] = None
+    genre: Optional[str] = None
+    mood_tag: Optional[str] = None
+
+
+class SongUpsertResponse(SongResponse):
+    """Same shape as `SongResponse` plus a flag so the client knows whether
+    the canonical row already existed."""
+
+    created: bool = False
+

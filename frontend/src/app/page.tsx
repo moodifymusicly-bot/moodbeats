@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useUser, useClerk, SignIn } from '@clerk/nextjs';
+import { useUser, useClerk } from '@clerk/nextjs';
 import toast from 'react-hot-toast';
+import { useApi } from '@/lib/useApi';
 import FaceCamera from '@/components/FaceCamera';
 import YouTubePlayer from '@/components/YouTubePlayer';
 import { MoodTimelineEntry, addMoodEntry } from '@/components/MoodTimeline';
@@ -24,6 +25,7 @@ type AppView = 'landing' | 'home' | 'search' | 'playing' | 'camera' | 'media' | 
 export default function Home() {
     const { user, isSignedIn } = useUser();
     const { signOut, openSignIn } = useClerk();
+    const api = useApi();
 
     const [view, setView] = useState<AppView>('landing');
     const [selectedMood, setSelectedMood] = useState<MoodType | null>(null);
@@ -52,7 +54,6 @@ export default function Home() {
     const [subMoodLoading, setSubMoodLoading] = useState(false);
 
     // Clerk auth + user preferences
-    const [showSignIn, setShowSignIn] = useState(false);
     const [likedSongs, setLikedSongs] = useState<Set<string>>(new Set());
     const [playlists, setPlaylists] = useState<Playlist[]>([]);
     const [showPlaylistManager, setShowPlaylistManager] = useState(false);
@@ -63,13 +64,42 @@ export default function Home() {
     const [autoPlayNext, setAutoPlayNext] = useState(true);
     const userId = user?.id || 'anon';
 
-    // Load liked songs, playlists, and settings from localStorage
+    // Maps frontend song.id (e.g. "sample-happy-0" or "yt-VIDEOID") to the
+    // canonical server UUID returned from /api/songs/upsert, so we only upsert
+    // a given song once per session.
+    const songIdMapRef = useRef<Map<string, string>>(new Map());
+
+    // Resolve (and cache) the backend UUID for a song. Seed songs and YouTube
+    // results are upserted server-side; the returned id is used for likes,
+    // interactions, and playlist membership on the backend.
+    const resolveServerSongId = useCallback(async (song: RecommendedSong): Promise<string | null> => {
+        const cached = songIdMapRef.current.get(song.id);
+        if (cached) return cached;
+        const external_id = song.youtube_id || song.id;
+        if (!external_id) return null;
+        try {
+            const res = await api.upsertSong({
+                external_id,
+                title: song.title,
+                artist: song.artist,
+                duration: song.duration || 0,
+                cover_url: song.cover_url,
+                mood_tag: song.mood_tag || null,
+                album: song.album || null,
+                genre: song.genre || null,
+            });
+            const serverId = res?.id;
+            if (serverId) songIdMapRef.current.set(song.id, serverId);
+            return serverId ?? null;
+        } catch (err) {
+            console.warn('upsertSong failed', err);
+            return null;
+        }
+    }, [api]);
+
+    // Load settings from localStorage on mount (settings stay local-only).
     useEffect(() => {
         try {
-            const liked = localStorage.getItem(`liked_songs_${userId}`);
-            if (liked) setLikedSongs(new Set(JSON.parse(liked)));
-            const pls = localStorage.getItem(`playlists_${userId}`);
-            if (pls) setPlaylists(JSON.parse(pls));
             const settings = localStorage.getItem(`settings_${userId}`);
             if (settings) {
                 const s = JSON.parse(settings);
@@ -79,6 +109,84 @@ export default function Home() {
             }
         } catch { }
     }, [userId]);
+
+    // Load likes/playlists from the backend when signed in (server is source of
+    // truth); fall back to localStorage cache otherwise. On successful fetch we
+    // refresh the localStorage cache so offline reloads stay consistent.
+    useEffect(() => {
+        let cancelled = false;
+        const hydrate = async () => {
+            if (!isSignedIn) {
+                try {
+                    const liked = localStorage.getItem(`liked_songs_${userId}`);
+                    if (liked) setLikedSongs(new Set(JSON.parse(liked)));
+                    const pls = localStorage.getItem(`playlists_${userId}`);
+                    if (pls) setPlaylists(JSON.parse(pls));
+                } catch { }
+                return;
+            }
+            try {
+                const [likesRes, playlistsRes] = await Promise.all([
+                    api.getLikes().catch(() => []),
+                    api.getPlaylists().catch(() => []),
+                ]);
+                if (cancelled) return;
+
+                const likeIds = new Set<string>();
+                for (const row of likesRes || []) {
+                    const serverId = row?.song?.id;
+                    const ext = row?.song?.external_id;
+                    const src = row?.song?.external_source;
+                    if (serverId) {
+                        const frontendId = src === 'youtube' && ext ? `yt-${ext}` : (ext || serverId);
+                        likeIds.add(frontendId);
+                        songIdMapRef.current.set(frontendId, serverId);
+                    }
+                }
+                setLikedSongs(likeIds);
+                localStorage.setItem(`liked_songs_${userId}`, JSON.stringify(Array.from(likeIds)));
+
+                const mappedPlaylists: Playlist[] = (playlistsRes || []).map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    createdAt: p.created_at || new Date().toISOString(),
+                    songs: (p.songs || []).map((s: any) => {
+                        const frontendId = s.external_source === 'youtube' && s.external_id
+                            ? `yt-${s.external_id}`
+                            : (s.external_id || s.id);
+                        songIdMapRef.current.set(frontendId, s.id);
+                        return {
+                            id: frontendId,
+                            title: s.title,
+                            artist: s.artist,
+                            album: s.album || '',
+                            genre: s.genre || '',
+                            mood_tag: s.mood_tag || '',
+                            duration: s.duration || 0,
+                            cover_url: s.cover_url || null,
+                            audio_url: s.audio_url || null,
+                            preview_url: s.preview_url || null,
+                            youtube_id: s.external_source === 'youtube' ? s.external_id : undefined,
+                            valence: s.valence ?? 0.5,
+                            energy: s.energy ?? 0.5,
+                            danceability: s.danceability ?? 0.5,
+                            popularity: s.popularity ?? 50,
+                            release_date: null,
+                            score: 0.5,
+                            mood_match: 0.5,
+                            user_similarity: 0.5,
+                        } as RecommendedSong;
+                    }),
+                }));
+                setPlaylists(mappedPlaylists);
+                localStorage.setItem(`playlists_${userId}`, JSON.stringify(mappedPlaylists));
+            } catch (err) {
+                console.warn('Library hydration failed:', err);
+            }
+        };
+        hydrate();
+        return () => { cancelled = true; };
+    }, [isSignedIn, userId, api]);
 
     const persistSettings = useCallback((updates: { dataSaver?: boolean; showBackgroundEffects?: boolean; autoPlayNext?: boolean }) => {
         try {
@@ -103,30 +211,66 @@ export default function Home() {
         persistSettings({ autoPlayNext: val });
     }, [persistSettings]);
 
-    // Persist liked songs
-    const toggleLikeSong = useCallback((songId: string) => {
+    // Optimistic like toggle: update UI immediately, then persist to backend.
+    // Server is source of truth; localStorage is a write-through cache.
+    const toggleLikeSong = useCallback((songId: string, songData?: RecommendedSong) => {
+        let wasLiked = false;
         setLikedSongs(prev => {
             const next = new Set(prev);
-            const wasLiked = next.has(songId);
+            wasLiked = next.has(songId);
             if (wasLiked) next.delete(songId);
             else next.add(songId);
             localStorage.setItem(`liked_songs_${userId}`, JSON.stringify(Array.from(next)));
-            toast(wasLiked ? 'Removed from liked' : 'Added to liked', {
-                icon: wasLiked ? '💔' : '❤️',
-            });
             return next;
         });
-    }, [userId]);
+        toast(wasLiked ? 'Removed from liked' : 'Added to liked', {
+            icon: wasLiked ? '\u{1F494}' : '\u{2764}\u{FE0F}',
+        });
+        if (!isSignedIn) return;
+        (async () => {
+            try {
+                let serverId = songIdMapRef.current.get(songId);
+                if (!serverId && songData) {
+                    serverId = (await resolveServerSongId(songData)) ?? undefined;
+                }
+                if (!serverId) return;
+                if (wasLiked) await api.unlikeSong(serverId);
+                else await api.likeSong(serverId);
+            } catch (err) {
+                console.warn('like sync failed', err);
+            }
+        })();
+    }, [userId, isSignedIn, api, resolveServerSongId]);
 
-    // Playlist handlers
-    const handleCreatePlaylist = useCallback((name: string) => {
+    // Playlist handlers. When signed in we round-trip to the server and use
+    // the returned id; otherwise we fall back to a local-only id.
+    const handleCreatePlaylist = useCallback(async (name: string) => {
+        if (isSignedIn) {
+            try {
+                const pl = await api.createPlaylist(name);
+                const newPl: Playlist = {
+                    id: pl.id,
+                    name: pl.name,
+                    songs: [],
+                    createdAt: pl.created_at || new Date().toISOString(),
+                };
+                setPlaylists(prev => {
+                    const next = [...prev, newPl];
+                    localStorage.setItem(`playlists_${userId}`, JSON.stringify(next));
+                    return next;
+                });
+                return;
+            } catch (err) {
+                console.warn('createPlaylist failed', err);
+            }
+        }
         const newPl: Playlist = { id: `pl-${Date.now()}`, name, songs: [], createdAt: new Date().toISOString() };
         setPlaylists(prev => {
             const next = [...prev, newPl];
             localStorage.setItem(`playlists_${userId}`, JSON.stringify(next));
             return next;
         });
-    }, [userId]);
+    }, [userId, isSignedIn, api]);
 
     const handleDeletePlaylist = useCallback((id: string) => {
         setPlaylists(prev => {
@@ -134,13 +278,16 @@ export default function Home() {
             localStorage.setItem(`playlists_${userId}`, JSON.stringify(next));
             return next;
         });
-    }, [userId]);
+        if (isSignedIn) {
+            api.deletePlaylist(id).catch(err => console.warn('deletePlaylist failed', err));
+        }
+    }, [userId, isSignedIn, api]);
 
-    const handleAddToPlaylist = useCallback((playlistId: string, song: RecommendedSong) => {
+    const handleAddToPlaylist = useCallback(async (playlistId: string, song: RecommendedSong) => {
         setPlaylists(prev => {
             const playlist = prev.find(p => p.id === playlistId);
             if (playlist && !playlist.songs.some(s => s.id === song.id)) {
-                toast(`Added to "${playlist.name}"`, { icon: '🎶' });
+                toast(`Added to "${playlist.name}"`, { icon: '\u{1F3B6}' });
             }
             const next = prev.map(p =>
                 p.id === playlistId && !p.songs.some(s => s.id === song.id)
@@ -150,7 +297,14 @@ export default function Home() {
             localStorage.setItem(`playlists_${userId}`, JSON.stringify(next));
             return next;
         });
-    }, [userId]);
+        if (!isSignedIn) return;
+        try {
+            const serverId = await resolveServerSongId(song);
+            if (serverId) await api.addSongToPlaylist(playlistId, serverId);
+        } catch (err) {
+            console.warn('addSongToPlaylist failed', err);
+        }
+    }, [userId, isSignedIn, api, resolveServerSongId]);
 
     const handleRemoveSongFromPlaylist = useCallback((playlistId: string, songId: string) => {
         setPlaylists(prev => {
@@ -162,7 +316,13 @@ export default function Home() {
             localStorage.setItem(`playlists_${userId}`, JSON.stringify(next));
             return next;
         });
-    }, [userId]);
+        if (isSignedIn) {
+            const serverId = songIdMapRef.current.get(songId) || songId;
+            api.removeSongFromPlaylist(playlistId, serverId).catch(err =>
+                console.warn('removeSongFromPlaylist failed', err)
+            );
+        }
+    }, [userId, isSignedIn, api]);
 
     const handlePlayPlaylist = useCallback((playlist: Playlist) => {
         if (playlist.songs.length === 0) return;
@@ -209,45 +369,39 @@ export default function Home() {
 
         setIsSearching(true);
         searchTimerRef.current = setTimeout(async () => {
-            const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
-            if (!apiKey) { setIsSearching(false); return; }
-
             try {
-                const res = await fetch(
-                    `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=20&q=${encodeURIComponent(searchQuery)}&key=${apiKey}`
-                );
-                if (!res.ok) { setIsSearching(false); return; }
-                const data = await res.json();
-                const mapped: RecommendedSong[] = (data.items || []).map((item: any, i: number) => ({
-                    id: `yt-${item.id.videoId}`,
-                    title: (item.snippet.title || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
-                    artist: item.snippet.channelTitle || '',
+                const data = await api.searchYouTube(searchQuery, 20);
+                const mapped: RecommendedSong[] = (data.items || []).map((item, i) => ({
+                    id: `yt-${item.external_id}`,
+                    title: item.title,
+                    artist: item.artist,
                     album: '',
                     genre: '',
                     mood_tag: '',
-                    duration: 0,
-                    cover_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || null,
+                    duration: item.duration || 0,
+                    cover_url: item.cover_url,
                     audio_url: null,
                     preview_url: null,
-                    youtube_id: item.id.videoId,
+                    youtube_id: item.external_id,
                     valence: 0.5,
                     energy: 0.5,
                     danceability: 0.5,
                     popularity: 50,
-                    release_date: item.snippet.publishedAt || null,
+                    release_date: null,
                     score: 1 - i * 0.02,
                     mood_match: 0.5,
                     user_similarity: 0.5,
                 }));
                 setYoutubeResults(mapped);
-            } catch {
+            } catch (err) {
+                console.warn('YouTube search failed:', err);
                 setYoutubeResults([]);
             }
             setIsSearching(false);
         }, 500);
 
         return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
-    }, [searchQuery]);
+    }, [searchQuery, api]);
 
     const handleRotateVideo = () => {
         setVideoRotation((prev) => (prev + 90) % 360);
@@ -291,7 +445,6 @@ export default function Home() {
     const handleMoodSelect = (mood: MoodType, source: 'camera' | 'manual' = 'manual', confidence: number = 1.0) => {
         setSelectedMood(mood);
         setSelectedSubMood(null);
-        // Boost liked songs by sorting them higher
         const baseSongs = getSampleSongs(mood);
         const boosted = [...baseSongs].sort((a, b) => {
             const aLiked = likedSongs.has(a.id) ? 0.2 : 0;
@@ -301,6 +454,13 @@ export default function Home() {
         setSongs(boosted);
         const updated = addMoodEntry(mood, source, confidence);
         setMoodHistory(updated);
+
+        // Persist the mood selection server-side for mood_history + rec caching.
+        if (isSignedIn) {
+            api.selectMood(mood, source, confidence).catch(err =>
+                console.warn('selectMood failed', err)
+            );
+        }
     };
 
     const handleCameraMood = (mood: MoodType, conf: number) => {
@@ -337,6 +497,19 @@ export default function Home() {
             log.push({ songTitle: song.title, artist: song.artist, timestamp: new Date().toISOString() });
             localStorage.setItem('songs_played_log', JSON.stringify(log));
         } catch { }
+
+        // Persist the play interaction server-side. Upserts the song first so
+        // YouTube results also become part of the recommender catalog.
+        if (isSignedIn) {
+            (async () => {
+                try {
+                    const serverId = await resolveServerSongId(song);
+                    if (serverId) await api.interactWithSong(serverId, 'play');
+                } catch (err) {
+                    console.warn('play interaction failed', err);
+                }
+            })();
+        }
     };
 
     const handleSubMoodSelect = async (subMood: string) => {
@@ -344,33 +517,26 @@ export default function Home() {
         setSelectedSubMood(subMood);
         setSubMoodLoading(true);
 
-        const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
-        if (!apiKey) { setSubMoodLoading(false); return; }
-
         try {
             const q = `${MOOD_CONFIG[mood].label} ${subMood} music`;
-            const res = await fetch(
-                `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=${encodeURIComponent(q)}&key=${apiKey}`
-            );
-            if (!res.ok) { setSubMoodLoading(false); return; }
-            const data = await res.json();
-            const mapped: RecommendedSong[] = (data.items || []).map((item: any, i: number) => ({
-                id: `yt-sub-${item.id.videoId}`,
-                title: (item.snippet.title || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
-                artist: item.snippet.channelTitle || '',
+            const data = await api.searchYouTube(q, 15);
+            const mapped: RecommendedSong[] = (data.items || []).map((item, i) => ({
+                id: `yt-sub-${item.external_id}`,
+                title: item.title,
+                artist: item.artist,
                 album: '',
                 genre: mood,
                 mood_tag: mood,
-                duration: 0,
-                cover_url: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || null,
+                duration: item.duration || 0,
+                cover_url: item.cover_url,
                 audio_url: null,
                 preview_url: null,
-                youtube_id: item.id.videoId,
+                youtube_id: item.external_id,
                 valence: 0.5,
                 energy: 0.5,
                 danceability: 0.5,
                 popularity: 50,
-                release_date: item.snippet.publishedAt || null,
+                release_date: null,
                 score: 1 - i * 0.02,
                 mood_match: 0.5,
                 user_similarity: 0.5,
@@ -380,7 +546,9 @@ export default function Home() {
                 setSongs(mapped);
                 handleSongPlay(mapped[0]);
             }
-        } catch { }
+        } catch (err) {
+            console.warn('Sub-mood search failed:', err);
+        }
         setSubMoodLoading(false);
     };
 
@@ -895,7 +1063,7 @@ export default function Home() {
                                 isSignedIn={!!isSignedIn}
                                 userName={user?.firstName || user?.username || null}
                                 userImage={user?.imageUrl || null}
-                                onSignIn={() => setShowSignIn(true)}
+                                onSignIn={() => openSignIn()}
                                 onSignOut={() => signOut()}
                             />
                         </div>
@@ -1108,7 +1276,7 @@ export default function Home() {
                                                 isActive={currentSong?.id === song.id}
                                                 isPlaying={isPlaying && currentSong?.id === song.id}
                                                 onPlay={() => handleSongPlay(song)}
-                                                onLike={() => toggleLikeSong(song.id)}
+                                                onLike={() => toggleLikeSong(song.id, song)}
                                                 isLiked={likedSongs.has(song.id)}
                                                 onAddToPlaylist={() => setAddToPlaylistSong(song)}
                                             />
@@ -1514,27 +1682,6 @@ export default function Home() {
                 onAutoPlay={toggleAutoPlayNext}
             />
 
-            {/* Clerk Sign-In Modal */}
-            <AnimatePresence>
-                {showSignIn && !isSignedIn && (
-                    <motion.div
-                        className="fixed inset-0 z-[100] flex items-center justify-center"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                    >
-                        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowSignIn(false)} />
-                        <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            className="relative z-10"
-                        >
-                            <SignIn afterSignInUrl="/" />
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </div>
     );
 }
