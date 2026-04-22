@@ -61,3 +61,15 @@ class PlaylistDetailResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PlaylistWithSongsResponse(BaseModel):
+    """Playlist list item that includes embedded song objects for frontend hydration."""
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+    song_count: int = 0
+    songs: list[SongResponse] = []
+
+    class Config:
+        from_attributes = True

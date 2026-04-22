@@ -35,6 +35,42 @@ _ISO_DURATION_RE = re.compile(
     r"^P(?:(?P<d>\d+)D)?T?(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S)?$"
 )
 
+# Keywords that strongly suggest a non-music video.
+_NON_MUSIC_TERMS = frozenset({
+    "reaction", "reacts", "reacting", "podcast", "documentary",
+    "gameplay", "tutorial", "how to", "full movie", "review",
+    "unboxing", "vlog", "interview", "compilation", "mix",
+    "episode", "trailer", "teaser", "behind the scenes",
+})
+
+# Terms that, when absent from the query, trigger a music nudge suffix.
+_MUSIC_HINTS = frozenset({"music", "song", "audio", "official", "lyrics", "remix", "cover"})
+
+
+def _augment_query(q: str) -> str:
+    """Append a music-specific suffix when the query has no music keywords."""
+    lower = q.lower()
+    if any(h in lower for h in _MUSIC_HINTS):
+        return q  # already music-targeted
+    return f"{q} official audio"
+
+
+def _is_likely_music(item: "YouTubeSearchItem") -> bool:
+    """Return True when the item is almost certainly a music track.
+
+    Rejects:
+    * Videos whose title contains non-music keywords (reactions, podcasts, etc.)
+    * Videos shorter than 60 s (ads / clips) or longer than 15 min (concerts /
+      podcasts that slip past category filtering).
+    """
+    title_lower = item.title.lower()
+    if any(kw in title_lower for kw in _NON_MUSIC_TERMS):
+        return False
+    dur = item.duration
+    if dur > 0 and (dur < 60 or dur > 900):
+        return False
+    return True
+
 
 class YouTubeSearchItem(BaseModel):
     external_id: str
@@ -77,10 +113,10 @@ async def _fetch_youtube(q: str, limit: int) -> list[YouTubeSearchItem]:
             _YT_SEARCH_URL,
             params={
                 "part": "snippet",
-                "q": q,
+                "q": _augment_query(q),  # BUG-3: music-nudge the query
                 "type": "video",
                 "videoCategoryId": "10",  # Music
-                "maxResults": min(max(1, limit), 25),
+                "maxResults": min(max(1, limit + 5), 25),  # fetch a few extra to cover filtered-out items
                 "key": settings.YOUTUBE_API_KEY,
             },
         )
@@ -129,7 +165,8 @@ async def _fetch_youtube(q: str, limit: int) -> list[YouTubeSearchItem]:
                 cover_url=cover,
             )
         )
-    return out
+    # BUG-3: Post-filter to remove non-music videos.
+    return [i for i in out if _is_likely_music(i)]
 
 
 @router.get("/search", response_model=YouTubeSearchResponse)
@@ -194,3 +231,56 @@ async def youtube_search(
     return YouTubeSearchResponse(
         query=q, items=items, cached=False, fallback=used_fallback
     )
+
+
+class YouTubeHealthResponse(BaseModel):
+    configured: bool
+    valid: bool
+    error: Optional[str] = None
+    quota_note: str = "Each health check consumes ~101 quota units"
+
+
+@router.get("/health", response_model=YouTubeHealthResponse)
+async def youtube_health():
+    """Validate that the YouTube API key is configured and functional."""
+    if not settings.YOUTUBE_API_KEY:
+        return YouTubeHealthResponse(
+            configured=False,
+            valid=False,
+            error="YOUTUBE_API_KEY is not set",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(
+                _YT_SEARCH_URL,
+                params={
+                    "part": "snippet",
+                    "q": "music",
+                    "type": "video",
+                    "maxResults": 1,
+                    "key": settings.YOUTUBE_API_KEY,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if "items" in data:
+                return YouTubeHealthResponse(configured=True, valid=True)
+            return YouTubeHealthResponse(
+                configured=True,
+                valid=False,
+                error="Unexpected response format from YouTube API",
+            )
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:300] if exc.response else str(exc)
+        return YouTubeHealthResponse(
+            configured=True,
+            valid=False,
+            error=f"HTTP {exc.response.status_code}: {detail}",
+        )
+    except httpx.HTTPError as exc:
+        return YouTubeHealthResponse(
+            configured=True,
+            valid=False,
+            error=f"Transport error: {exc}",
+        )

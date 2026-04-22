@@ -103,7 +103,10 @@ def _results_to_response(
 
 @router.get("/discover", response_model=DiscoverResponse)
 async def recommend_discover(
-    mood: str = Query("happy", description="Mood context for discovery scoring"),
+    mood: str | None = Query(
+        None,
+        description="Optional mood context; when omitted, discovery uses neutral mood fit (no happy bias).",
+    ),
     limit: int = Query(8, ge=1, le=20),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
@@ -112,7 +115,7 @@ async def recommend_discover(
 
     Works for both anonymous and signed-in users.
     """
-    if mood not in settings.MOODS:
+    if mood is not None and mood not in settings.MOODS:
         raise HTTPException(status_code=400, detail=f"Invalid mood: {mood}")
 
     user_id = current_user.id if current_user else None
@@ -127,7 +130,10 @@ async def recommend_discover(
 
 @router.get("/home", response_model=HomeRecommendationResponse)
 async def recommend_home(
-    starter_mood: str = Query("happy", description="Mood used for seed-catalog starter row when cold-start"),
+    starter_mood: str | None = Query(
+        None,
+        description="Cold-start seed mood for starter picks; defaults to study when omitted (no implicit happy).",
+    ),
     mood_limit: int = Query(8, ge=1, le=30),
     foryou_limit: int = Query(10, ge=1, le=50),
     history_limit: int = Query(6, ge=1, le=30),
@@ -135,12 +141,13 @@ async def recommend_home(
     db: AsyncSession = Depends(get_db),
 ):
     """Signed-in home bundle: For you, last/most played, optional seed mood starter."""
-    if starter_mood not in settings.MOODS:
-        raise HTTPException(status_code=400, detail=f"Invalid mood: {starter_mood}")
+    effective_starter = starter_mood if starter_mood is not None else "study"
+    if effective_starter not in settings.MOODS:
+        raise HTTPException(status_code=400, detail=f"Invalid mood: {effective_starter}")
     bundle = await get_home_feed(
         db,
         current_user.id,
-        starter_mood=starter_mood,
+        starter_mood=effective_starter,
         mood_limit=mood_limit,
         foryou_limit=foryou_limit,
         history_limit=history_limit,

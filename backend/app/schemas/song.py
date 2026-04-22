@@ -15,6 +15,8 @@ class SongResponse(BaseModel):
     cover_url: Optional[str] = None
     audio_url: Optional[str] = None
     preview_url: Optional[str] = None
+    external_source: Optional[str] = None
+    external_id: Optional[str] = None
     valence: float
     energy: float
     danceability: float

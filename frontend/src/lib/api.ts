@@ -220,6 +220,11 @@ export class ApiClient {
         return this.request<YouTubeSearchResponse>(`/api/youtube/search?${query.toString()}`);
     }
 
+    // ===== YouTube Health =====
+    async youtubeHealth(): Promise<{ configured: boolean; valid: boolean; error?: string }> {
+        return this.request<{ configured: boolean; valid: boolean; error?: string }>('/api/youtube/health');
+    }
+
     // ===== Health =====
     async healthCheck() {
         return this.request<any>('/api/health');

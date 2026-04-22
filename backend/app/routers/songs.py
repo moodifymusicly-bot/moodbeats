@@ -20,6 +20,7 @@ from app.services.song_service import (
 from app.services.auth_service import get_current_user, get_current_user_optional
 from app.services.cache import cache
 from app.services.activity_service import invalidate_user_activity_caches
+from app.services.feature_inference import infer_features_from_mood_tag, needs_feature_enrichment
 from app.models.user import User
 
 router = APIRouter(prefix="/api/songs", tags=["Songs"])
@@ -74,6 +75,15 @@ async def upsert_song(
         mood_tag=payload.mood_tag,
     )
     if created:
+        # REC-1B: Apply heuristic audio features for YouTube songs that arrive
+        # without Spotify metadata so the recommender can mood-sort them.
+        if needs_feature_enrichment(song.valence, song.energy, song.danceability):
+            features = infer_features_from_mood_tag(song.mood_tag)
+            for col, val in features.items():
+                if hasattr(song, col):
+                    setattr(song, col, val)
+            await db.flush()
+
         # New song in the pool -> every user's mood rec list is stale.
         await cache.delete_pattern("mb:reco:mood:*")
         await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
@@ -117,6 +127,9 @@ async def interact_with_song(
     await cache.delete_pattern(f"mb:reco:foryou:{current_user.id}:*")
     await cache.delete_pattern(f"mb:reco:mood:*:u:{current_user.id}")
     await cache.delete(f"mb:taste:{current_user.id}")
+    # REC-3: Also clear the short-lived skip_strength cache so the next
+    # request reflects the new interaction immediately.
+    await cache.delete(f"mb:skip:{current_user.id}")
     await invalidate_user_activity_caches(current_user.id)
 
     return {"status": "ok"}

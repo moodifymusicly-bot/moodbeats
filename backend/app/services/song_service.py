@@ -13,6 +13,9 @@ from app.models.interaction import Interaction
 # Mood -> (valence, energy, danceability) ranges, mirrors
 # backend/app/seed/seed_data.py::_make_song so inferred features for
 # YouTube-sourced rows stay consistent with the seeded catalog.
+# When clients omit mood metadata, avoid biasing the catalog toward any one mood.
+DEFAULT_MOOD_TAG = "unknown"
+
 _MOOD_FEATURE_RANGES: dict[str, dict[str, tuple[float, float]]] = {
     "happy": {"valence": (0.7, 0.95), "energy": (0.6, 0.85), "dance": (0.6, 0.9)},
     "sad": {"valence": (0.1, 0.4), "energy": (0.1, 0.4), "dance": (0.1, 0.4)},
@@ -136,7 +139,7 @@ async def upsert_song_from_external(
         artist=artist[:255],
         album=(album or None),
         genre=(genre or "youtube")[:100],
-        mood_tag=(mood_tag or "happy")[:50],
+        mood_tag=(mood_tag or DEFAULT_MOOD_TAG)[:50],
         duration=int(duration or 0),
         cover_url=cover_url,
         audio_url=None,

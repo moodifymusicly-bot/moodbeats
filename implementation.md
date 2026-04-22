@@ -69,8 +69,10 @@ flowchart LR
   positive interactions (`play` scaled by listen completion, `like` and
   `save` weighted higher). Skips add a separate per-song penalty.
 - Hybrid score per song = `ALPHA*mood + BETA*taste + GAMMA*popularity +
-  DELTA*freshness` with an exact-mood multiplier. `/for-you` drops the
-  mood term and folds in a small recency bias from `mood_history`.
+  DELTA*freshness`, plus a **small** extra boost when `Song.mood_tag`
+  matches the requested mood (secondary to audio-feature fit). `/for-you`
+  drops the explicit mood term and folds in a small recency bias from
+  `mood_history`.
 - Popularity is read from Redis `mb:pop:play:{song_id}` counters
   (log-normalized across the candidate set) and mixed with the DB
   `Song.popularity` baseline.
@@ -89,7 +91,7 @@ flowchart LR
 | `mb:user:lastplayed:{user}` etc.   | ~90 s        | `POST /api/songs/*/interact` (same user)           |
 | `mb:user:icount:{user}`            | ~120 s       | `POST /api/songs/*/interact`                       |
 
-**Home bundle (signed-in)**: `GET /api/recommendations/home` returns `for_you`, `last_played`, `most_played`, optional `mood_starter` (cold users), plus `cold_start` and `interaction_count`. Sections are deduped server-side. Frontend shows horizontal rows on the home view.
+**Home bundle (signed-in)**: `GET /api/recommendations/home` returns `for_you`, `last_played`, `most_played`, optional `mood_starter` (cold users), plus `cold_start` and `interaction_count`. Sections are deduped server-side with **last_played winning** over `for_you` when the same song appears in both. Optional query `starter_mood` defaults to **study** when omitted (no implicit happy). **Discover** `GET /api/recommendations/discover` accepts an optional `mood`; when omitted, scoring uses neutral mood fit (`suggested_mood: neutral`). **YouTube upserts** without a mood tag store `mood_tag=unknown` (neutral inferred features), not `happy`. The Moods home UI order is: mood detection → disposition pills / explore grid → recommendation rows → optional artist filter.
 
 All cache reads wrap `redis.asyncio` errors and degrade gracefully:
 callers get `None` / empty state, the request still completes against
@@ -170,6 +172,17 @@ stored in `interactions`.
   play via the existing search proxy when no `audio_url` is present.
 - `GET /api/recommendations/for-you` -> authenticated; taste +
   popularity + freshness + small recent-mood bias.
+- `GET /api/youtube/health` -> validates that `YOUTUBE_API_KEY` is
+  configured and functional (makes a lightweight test call).
+
+### Recently Played (all users)
+
+- `localStorage('recently_played_songs')` stores the last 20 played
+  songs as full `RecommendedSong` objects. Updated on every
+  `handleSongPlay`. Rendered as a horizontal row above the Discover
+  feed for all users (anonymous and signed-in).
+- Signed-in users also see `homeFeed.last_played` from the server; if
+  the server list is empty, the localStorage fallback is used.
 
 ### Future
 

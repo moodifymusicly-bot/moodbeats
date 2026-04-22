@@ -84,6 +84,21 @@ async def list_playlists(
     return [(p, int(c or 0)) for p, c in result.all()]
 
 
+async def list_playlists_with_songs(
+    db: AsyncSession, user_id: uuid.UUID
+) -> list[Playlist]:
+    """Return playlists with songs eager-loaded for full hydration."""
+    result = await db.execute(
+        select(Playlist)
+        .options(
+            selectinload(Playlist.items).selectinload(PlaylistSong.song)
+        )
+        .where(Playlist.user_id == user_id)
+        .order_by(Playlist.created_at.desc())
+    )
+    return list(result.scalars().unique().all())
+
+
 async def create_playlist(
     db: AsyncSession, user_id: uuid.UUID, name: str
 ) -> Playlist:

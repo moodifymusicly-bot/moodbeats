@@ -1,5 +1,6 @@
 'use client';
 
+import { useTransition } from 'react';
 import { motion } from 'framer-motion';
 import { MoodType, MOOD_CONFIG, User } from '@/lib/types';
 
@@ -8,9 +9,12 @@ interface NavBarProps {
     onAuthClick: () => void;
     onLogout: () => void;
     currentMood: MoodType | null;
+    /** Navigate back to the landing page (e.g. when logo is clicked). */
+    onHome?: () => void;
 }
 
-export default function NavBar({ user, onAuthClick, onLogout, currentMood }: NavBarProps) {
+export default function NavBar({ user, onAuthClick, onLogout, currentMood, onHome }: NavBarProps) {
+    const [isPending, startTransition] = useTransition();
     const moodColor = currentMood ? MOOD_CONFIG[currentMood].color : '#3b82f6';
 
     return (
@@ -22,12 +26,21 @@ export default function NavBar({ user, onAuthClick, onLogout, currentMood }: Nav
             transition={{ delay: 0.1, type: 'spring', damping: 25 }}
         >
             <div className="max-w-5xl mx-auto flex items-center justify-between h-16 px-4 sm:px-6">
-                {/* Logo */}
-                <div className="flex items-center gap-3">
+                {/* Logo — clicking navigates to landing via useTransition (NAV-1) */}
+                <button
+                    id="nav-logo-btn"
+                    onClick={() => {
+                        if (onHome) startTransition(() => onHome());
+                    }}
+                    className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity duration-200"
+                    aria-label="Go to home page"
+                >
                     <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center font-display font-black text-sm"
                         style={{
                             background: `linear-gradient(135deg, ${moodColor}, ${moodColor}80)`,
+                            opacity: isPending ? 0.6 : 1,
+                            transition: 'opacity 0.2s',
                         }}
                     >
                         M
@@ -42,11 +55,11 @@ export default function NavBar({ user, onAuthClick, onLogout, currentMood }: Nav
                                 style={{ backgroundColor: moodColor }}
                             />
                             <span className="text-[9px] tracking-[0.2em] uppercase" style={{ color: moodColor }}>
-                                AI Engine
+                                {isPending ? 'Loading…' : 'AI Engine'}
                             </span>
                         </div>
                     </div>
-                </div>
+                </button>
 
                 {/* Right side */}
                 <div className="flex items-center gap-3">
@@ -80,10 +93,11 @@ export default function NavBar({ user, onAuthClick, onLogout, currentMood }: Nav
                         </div>
                     ) : (
                         <button
-                            onClick={onAuthClick}
+                            id="nav-signin-btn"
+                            onClick={() => startTransition(() => onAuthClick())}
                             className="px-4 py-1.5 rounded-full text-xs font-semibold glass glass-hover transition-all hover:scale-105"
                         >
-                            Sign In
+                            {isPending ? '…' : 'Sign In'}
                         </button>
                     )}
                 </div>

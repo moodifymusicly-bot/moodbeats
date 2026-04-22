@@ -1,5 +1,24 @@
 # MoodBeats Work Log
 
+## 2026-04-20 (Nav improvements + production readiness audit)
+- **Task**: Logo click → landing page from any view; NAV-1 `useTransition` for nav buttons; production-readiness audit; verify recommendation system per-user uniqueness.
+- **What changed**:
+  - **`NavBar.tsx`**: Added `onHome` prop. Logo is now a `<button>` that calls `onHome()` via `useTransition`. Sign-in button also wrapped in `useTransition`. Sub-label shows "Loading…" while transition is pending. Added `id="nav-logo-btn"` and `id="nav-signin-btn"` for testability. Note: `NavBar.tsx` is defined but not yet directly rendered (home top-bar is inline in `page.tsx`); changes are ready for when it's wired in.
+  - **`page.tsx`** — Home top bar: When no mood is selected, the "MoodBeats" title is now a `<button id="home-logo-btn">` that navigates to `setView('landing')` via `resetHomeState()`.
+  - **`page.tsx`** — Playing view header: The "MoodBeats // Media" centre title is now `<button id="playing-logo-btn">` that returns to landing.
+  - **`page.tsx`** — `useTransition` import added. `BottomNav` component now uses `useTransition` (`startNavTransition`) for all tab-switch `onNav()` calls. Nav buttons dim while transition is pending. Added `id="nav-{tab}-btn"` to all bottom nav items.
+  - **`docs/production-readiness.md`**: New audit document with: recommendation system analysis, critical P-1..P-5 blockers, S-1..S-9 should-fix items, N-1..N-9 nice-to-haves, and concrete `bash` remediation commands.
+- **Why**: Clicking the logo to go home is standard UX expectation. `useTransition` prevents the UI from freezing on tab switch (React 18 concurrent feature). Production readiness gaps would cause silent auth failures, full table scans at scale, and non-optimised frontend builds.
+- **Recommendation system status**: Confirmed correct. Per-user unique via `mb:reco:mood:{mood}:{limit}:u:{user_id}` and `mb:reco:foryou:{user_id}:{limit}` Redis keys. Taste vector is 6-D, time-decayed, personalised. Cold start (< 5 interactions) uses mood-only scoring. Known gaps documented in `docs/production-readiness.md`.
+- **Next action**: Address P-1..P-5 critical items before first production traffic. Run `npm run build` instead of dev server. Add DB health check to docker-compose.yml.
+
+
+## 2026-04-18 (Moods page order + reco ranking + ingest default)
+- **Task**: Align home UX and APIs with plan: detect mood → mood types → feeds; recent plays before personalized recs; reduce happy bias in scoring and YouTube upserts.
+- **What changed**: Backend `get_home_feed` dedupes with last_played first; mood-tag match multiplier lowered; optional `mood` on discover and optional `starter_mood` on home (defaults study / neutral); `DEFAULT_MOOD_TAG` for upserts. Frontend reordered home sections, `cardAccentMood`, conditional API params. Tests `test_home_feed_order.py`; docs/changelog touched.
+- **Why**: Users saw recommendations before choosing a mood; duplicate songs favored for-you over history; catalog skewed to happy.
+- **Next action**: Run `pytest` in backend env; smoke-test home layout in browser.
+
 ## 2026-04-18 (Discover feed: Fresh Picks, Timeless Classics, Trending)
 - **Task**: Recommendation sections not visible to users; no new vs old music categorization; home feed sections disappear on navigation.
 - **What changed**:
@@ -130,3 +149,26 @@
 - **What changed**: Added [`backend/tests/test_plan_verify_reco_flow.py`](backend/tests/test_plan_verify_reco_flow.py) (interact `play`, anonymous path, `songs_played_log` presence in `page.tsx`/`TimelineView.tsx`, `for-you` + mood reco router wiring, library playlists). Added [`scripts/verify-reco-flow-plan.sh`](scripts/verify-reco-flow-plan.sh) (`uv run pytest …`; optional `--sql` when compose DB is up). Smoke: deployed landing loads at `https://148.135.138.197.nip.io/`.
 - **Why**: Encode plan steps as CI-friendly tests; full Clerk + Network tab remains manual.
 - **Next action**: Run `bash scripts/verify-reco-flow-plan.sh` in CI or before release.
+
+## 2026-04-18 (mood detection -> play E2E fix + recently played)
+- **Task**: Ensure Detect Mood -> Play Songs flow works end-to-end; add Recently Played for all users; add YouTube health endpoint; harden camera mood flow.
+- **What changed**:
+  - **Frontend (`page.tsx`)**: Added `recentlyPlayedLocal` state backed by `localStorage('recently_played_songs')`. `handleSongPlay` now stores full `RecommendedSong` objects (last 20, deduped, most-recent-first). New "Recently Played" horizontal row renders above the Discover feed for ALL users (anon + signed-in). Signed-in home feed falls back to localStorage recently played when server `last_played` is empty.
+  - **Frontend (`page.tsx`)**: Hardened `handleCameraMood` -- if `artistFilter` yields no matches, falls back to unfiltered song list for auto-play. Shows toast error when no songs found at all.
+  - **Backend (`routers/youtube.py`)**: Added `GET /api/youtube/health` endpoint that validates the YouTube API key is both configured and functional (makes a test search call).
+  - **Frontend (`api.ts`)**: Added `youtubeHealth()` client method for the new endpoint.
+  - **Docs**: Updated `implementation.md` with new API and Recently Played architecture.
+- **Why**: Anonymous users had no recently played section; camera mood detection could silently fail when artist filter was active; no way to validate YouTube API key beyond checking if it was set.
+- **Validation**: Full E2E flow traced: Start Detection -> FaceCamera -> handleCameraMood -> loadRecommendationsForMood (backend + YouTube fallback) -> handleSongPlay -> YouTubePlayer iframe. All state transitions verified.
+- **Next action**: Deploy to VPS via `docker compose up -d --build`.
+
+## 2026-04-18 (wiring audit -- two schema fixes)
+- **Task**: Verify every frontend API call has a matching backend route with correct response shape.
+- **What changed**:
+  - **`SongResponse` schema** (`backend/app/schemas/song.py`): Added `external_source` and `external_id` fields. The frontend `getLikes` hydration reads `row.song.external_source` and `row.song.external_id` to build frontend song IDs (e.g. `yt-VIDEO_ID`). These fields were on the ORM model but missing from the Pydantic schema, so the JSON response silently omitted them.
+  - **`GET /api/library/playlists`** (`backend/app/routers/library.py`): Changed from `PlaylistResponse` (no songs) to `PlaylistWithSongsResponse` (songs eager-loaded). The frontend reads `p.songs` during hydration to populate playlist song cards; previously this was always empty because the response only had `{id, name, created_at, song_count}`.
+  - **New schema** `PlaylistWithSongsResponse` in `backend/app/schemas/library.py`.
+  - **New service** `list_playlists_with_songs` in `backend/app/services/library_service.py` -- uses `selectinload` to eager-load `PlaylistSong.song`.
+- **Why**: Static audit of all 24 frontend API methods vs backend routes revealed these two concrete mismatches. All other routes matched correctly (methods, paths, auth requirements, response shapes).
+- **Validation**: All route paths verified: every `api.*` call in `page.tsx` and `api.ts` has a matching backend decorator + correct response model.
+- **Next action**: Deploy to VPS.

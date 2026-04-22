@@ -5,13 +5,22 @@ change lands on `main`.
 
 ## [Unreleased]
 
+### Changed
+
+- **Moods home layout**: Mood detection and mood-type selectors appear before discovery and personalized rows; optional artist filter follows feeds.
+- **Recommendations**: Home feed deduplication prefers **recently played** over “for you” when a song appears in both; mood-based ranking relies more on audio-feature fit with a smaller `mood_tag` boost; discover feed can omit `mood` for neutral scoring; signed-in home cold-start `starter_mood` defaults to **study** when not sent (no implicit happy).
+- **YouTube catalog**: New upserts without a mood tag are stored as `unknown` (neutral features) instead of defaulting to happy.
+
 ### Added
 
+- **Recently Played for all users**: A "Recently Played" section now appears above the Discover feed for all users (including anonymous). Backed by localStorage, it persists the last 20 played songs as full playable cards. For signed-in users, the server-side last-played list is preferred with localStorage as fallback.
+- **YouTube API health check**: New `GET /api/youtube/health` endpoint validates that the YouTube API key is both configured and functional (not just present).
 - **Discover feed — Fresh Picks, Timeless Classics, Trending**: New `GET /api/recommendations/discover` endpoint categorizes songs by release date and popularity into curated sections. Works for both anonymous and signed-in users. The home screen now prominently displays these sections with icons and descriptions, making music discovery front and center.
 - **Prominent personalized recommendations**: Signed-in users see "Recommended for You", "Recently Played", and "Most Played" sections with clear labels and subtitles instead of barely-visible tiny text.
 
 ### Fixed
 
+- **Camera mood detection auto-play robustness**: If the artist filter matches no songs after mood detection, the system now falls back to the full unfiltered song list instead of silently playing nothing. A toast error is shown when no songs are available at all.
 - **Recommendation sections disappearing on navigation**: Going back to home no longer clears cached recommendation data.
 - **Playback when YouTube Data API is unavailable**: `/api/youtube/search` returns curated mood-based fallback videos instead of HTTP 503, so mood flows and search still produce playable tracks. Recommendations now include `youtube_id` for mapped seed songs and for catalog entries sourced from YouTube.
 

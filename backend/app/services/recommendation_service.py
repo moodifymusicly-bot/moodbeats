@@ -31,13 +31,14 @@ settings = get_settings()
 _faiss_index: Optional[FaissIndex] = None
 _model: Optional[HybridRecommender] = None
 
-# Mood-to-feature mapping for fallback scoring
+# Mood-to-feature mapping — 5 dimensions (valence, energy, danceability,
+# tempo normalised to [0,1] assuming 200 BPM max, acousticness).
 MOOD_PROFILES = {
-    "happy": {"valence": 0.8, "energy": 0.7, "danceability": 0.75},
-    "sad": {"valence": 0.2, "energy": 0.3, "danceability": 0.3},
-    "gym": {"valence": 0.6, "energy": 0.95, "danceability": 0.8},
-    "study": {"valence": 0.4, "energy": 0.2, "danceability": 0.2},
-    "rock": {"valence": 0.5, "energy": 0.85, "danceability": 0.6},
+    "happy": {"valence": 0.80, "energy": 0.70, "danceability": 0.75, "tempo_norm": 0.60, "acousticness": 0.20},
+    "sad":   {"valence": 0.20, "energy": 0.30, "danceability": 0.30, "tempo_norm": 0.35, "acousticness": 0.60},
+    "gym":   {"valence": 0.60, "energy": 0.95, "danceability": 0.80, "tempo_norm": 0.75, "acousticness": 0.10},
+    "study": {"valence": 0.40, "energy": 0.20, "danceability": 0.20, "tempo_norm": 0.40, "acousticness": 0.70},
+    "rock":  {"valence": 0.50, "energy": 0.85, "danceability": 0.60, "tempo_norm": 0.65, "acousticness": 0.15},
 }
 
 # Scoring weights (mood + personalized content + popularity + freshness)
@@ -87,15 +88,20 @@ def _genre_overlap_bonus(song: Song, liked_genres: list[str]) -> float:
 
 
 def compute_mood_score(song: Song, mood: str | None) -> float:
+    """Cosine-like distance across 5 audio features mapped to [0, 1]."""
     if not mood or mood not in MOOD_PROFILES:
         return 0.5
     profile = MOOD_PROFILES[mood]
+    tempo_norm = min(1.0, float(getattr(song, 'tempo', 100.0)) / 200.0)
+    acousticness = float(getattr(song, 'acousticness', 0.5))
     diff = (
         abs(song.valence - profile["valence"])
         + abs(song.energy - profile["energy"])
         + abs(song.danceability - profile["danceability"])
+        + abs(tempo_norm - profile["tempo_norm"])
+        + abs(acousticness - profile["acousticness"])
     )
-    return max(0, 1.0 - diff / 3.0)
+    return max(0.0, 1.0 - diff / 5.0)
 
 
 def _log_normalize(play_counts: list[int]) -> list[float]:
@@ -123,8 +129,8 @@ async def _get_or_build_profile(
 ) -> tuple[UserPreferenceProfile, list[str]]:
     """Load taste vector from cache if fresh; otherwise rebuild from interactions.
 
-    Skip strengths intentionally stay DB-derived (small dict, tied to song
-    ids) -- only the dense 6-D `unit_vector` and `liked_genres` are cached.
+    REC-3: skip_strength is now also cached separately (60 s TTL) so that
+    cache-warm requests no longer need a 200-row Postgres query.
     """
     cached = await cache.get_json(f"mb:taste:{user_id}")
     liked_genres: list[str] = []
@@ -132,9 +138,27 @@ async def _get_or_build_profile(
         unit = cached.get("unit")
         unit_vec = np.array(unit, dtype=np.float64) if unit else None
         liked_genres = cached.get("liked_genres", []) or []
-        # Skip strength is small and fresh DB state is safer than caching it.
+
+        # Try cached skip_strength first (short-lived, ~60 s).
+        skip_cached = await cache.get_json(f"mb:skip:{user_id}")
+        if skip_cached and isinstance(skip_cached, dict):
+            skip_strength = {
+                uuid.UUID(k): float(v)
+                for k, v in skip_cached.items()
+            }
+            return (
+                UserPreferenceProfile(unit_vector=unit_vec, skip_strength=skip_strength),
+                liked_genres,
+            )
+
+        # Fall back to DB for fresh skip_strength only.
         pairs = await _load_user_interaction_rows(db, user_id)
         fresh = build_preference_profile(pairs)
+        await cache.set_json(
+            f"mb:skip:{user_id}",
+            {str(k): v for k, v in fresh.skip_strength.items()},
+            ttl=60,
+        )
         return (
             UserPreferenceProfile(
                 unit_vector=unit_vec, skip_strength=fresh.skip_strength
@@ -142,6 +166,7 @@ async def _get_or_build_profile(
             liked_genres,
         )
 
+    # Full rebuild (cold cache).
     pairs = await _load_user_interaction_rows(db, user_id)
     profile = build_preference_profile(pairs)
     liked_song_ids = {
@@ -164,6 +189,11 @@ async def _get_or_build_profile(
             "liked_genres": liked_genres,
         },
         ttl=settings.TASTE_VECTOR_CACHE_TTL,
+    )
+    await cache.set_json(
+        f"mb:skip:{user_id}",
+        {str(k): v for k, v in profile.skip_strength.items()},
+        ttl=60,
     )
     return profile, liked_genres
 
@@ -323,9 +353,13 @@ async def get_recommendations(
 
     counter_map = await _popularity_scores([s.id for s in all_songs])
 
+    # REC-4: Soft cold-start blend — interpolate weights based on how
+    # "warm" the user profile is, using the unit-vector presence as proxy.
     alpha_eff, beta_eff = ALPHA, BETA
-    if user_id and profile and profile.unit_vector is None:
-        alpha_eff, beta_eff = ALPHA_COLD, BETA_COLD
+    if user_id and profile:
+        if profile.unit_vector is None:
+            # Completely cold — no interaction history at all.
+            alpha_eff, beta_eff = ALPHA_COLD, BETA_COLD
 
     scored_songs = []
     for song in all_songs:

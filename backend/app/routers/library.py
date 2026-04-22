@@ -22,6 +22,7 @@ from app.schemas.library import (
     PlaylistResponse,
     PlaylistSongAdd,
     PlaylistSongItem,
+    PlaylistWithSongsResponse,
 )
 from app.schemas.song import SongResponse
 from app.services.auth_service import get_current_user
@@ -98,20 +99,25 @@ async def unlike_song(
 
 # --- Playlists ---
 
-@router.get("/playlists", response_model=List[PlaylistResponse])
+@router.get("/playlists", response_model=List[PlaylistWithSongsResponse])
 async def get_playlists(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = await library_service.list_playlists(db, current_user.id)
+    playlists = await library_service.list_playlists_with_songs(db, current_user.id)
     return [
-        PlaylistResponse(
+        PlaylistWithSongsResponse(
             id=p.id,
             name=p.name,
             created_at=p.created_at,
-            song_count=cnt,
+            song_count=len(p.items),
+            songs=[
+                SongResponse.model_validate(it.song)
+                for it in sorted(p.items, key=lambda x: x.position)
+                if it.song
+            ],
         )
-        for p, cnt in rows
+        for p in playlists
     ]
 
 

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUser, useClerk } from '@clerk/nextjs';
 import toast from 'react-hot-toast';
 import { useApi } from '@/lib/useApi';
-import FaceCamera from '@/components/FaceCamera';
+const FaceCamera = dynamic(() => import('@/components/FaceCamera'), { ssr: false });
 import YouTubePlayer from '@/components/YouTubePlayer';
 import { MoodTimelineEntry, addMoodEntry } from '@/components/MoodTimeline';
 import TimelineView from '@/components/TimelineView';
@@ -102,6 +102,8 @@ export default function Home() {
     const [moodHistory, setMoodHistory] = useState<MoodTimelineEntry[]>([]);
     const [landscapeMode, setLandscapeMode] = useState(false);
     const audioRef = useRef<HTMLAudioElement>(null);
+    const homeFeedFetchedAt = useRef<number>(0);
+    const ytIdCacheRef = useRef<Map<string, string>>(new Map());
 
     const [youtubeResults, setYoutubeResults] = useState<RecommendedSong[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -210,15 +212,16 @@ export default function Home() {
         [api, likedSongs, isSignedIn]
     );
 
-    const loadHomeFeed = useCallback(async () => {
+    const loadHomeFeed = useCallback(async (force = false) => {
         if (!isSignedIn) return;
+        // Skip re-fetch if data is fresh (< 60 s old) unless forced
+        if (!force && homeFeed && Date.now() - homeFeedFetchedAt.current < 60_000) return;
         setHomeFeedLoading(true);
         try {
             const data = await api.getHomeRecommendations({
                 mood_limit: 8,
                 foryou_limit: 10,
                 history_limit: 6,
-                ...(selectedMood ? { starter_mood: selectedMood } : {}),
             });
             const map = (rows: Record<string, unknown>[]) =>
                 rows.map((s) => mapApiRecommendationToSong(s));
@@ -229,13 +232,14 @@ export default function Home() {
                 mood_starter: map(data.mood_starter ?? []),
                 cold_start: Boolean(data.cold_start),
             });
+            homeFeedFetchedAt.current = Date.now();
         } catch (e) {
             console.warn('loadHomeFeed failed', e);
             setHomeFeed(null);
         } finally {
             setHomeFeedLoading(false);
         }
-    }, [api, isSignedIn, selectedMood]);
+    }, [api, isSignedIn, homeFeed]);
 
     const loadDiscoverFeed = useCallback(async () => {
         setDiscoverLoading(true);
@@ -634,6 +638,7 @@ export default function Home() {
         setSelectedMood(mood);
         setSelectedSubMood(null);
         setMoodRecLoading(true);
+        // NAV-3: Keep existing songs visible while loading (no clear before fetch)
         try {
             const boosted = await loadRecommendationsForMood(mood);
             setSongs(boosted);
@@ -687,14 +692,24 @@ export default function Home() {
     const handleSongPlay = async (song: RecommendedSong) => {
         let resolved: RecommendedSong = { ...song };
         if (!resolved.youtube_id && !resolved.audio_url) {
-            try {
-                const data = await api.searchYouTube(`${resolved.title} ${resolved.artist}`, 1);
-                const first = data.items?.[0];
-                if (first?.external_id) {
-                    resolved = { ...resolved, youtube_id: first.external_id };
+            // PERF-2: Check in-memory and localStorage cache before hitting API
+            const cachedYtId =
+                ytIdCacheRef.current.get(song.id) ??
+                (() => { try { return localStorage.getItem(`yt_id:${song.id}`) ?? undefined; } catch { return undefined; } })();
+            if (cachedYtId) {
+                resolved = { ...resolved, youtube_id: cachedYtId };
+            } else {
+                try {
+                    const data = await api.searchYouTube(`${resolved.title} ${resolved.artist}`, 1);
+                    const first = data.items?.[0];
+                    if (first?.external_id) {
+                        resolved = { ...resolved, youtube_id: first.external_id };
+                        ytIdCacheRef.current.set(song.id, first.external_id);
+                        try { localStorage.setItem(`yt_id:${song.id}`, first.external_id); } catch { }
+                    }
+                } catch (err) {
+                    console.warn('YouTube resolve for playback failed', err);
                 }
-            } catch (err) {
-                console.warn('YouTube resolve for playback failed', err);
             }
         }
 
@@ -1266,12 +1281,24 @@ export default function Home() {
                             ) : (
                                 <div className="w-7 h-7" />
                             )}
-                            <div className="text-center">
-                                <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">
-                                    {songs.length > 0 ? `${MOOD_CONFIG[selectedMood!]?.label} Playlist` : 'MoodBeats'}
-                                </h1>
-                                <div className="w-5 h-0.5 rounded-full mx-auto mt-1" style={{ backgroundColor: moodColor }} />
-                            </div>
+                            {songs.length > 0 ? (
+                                <div className="text-center">
+                                    <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">
+                                        {`${MOOD_CONFIG[selectedMood!]?.label} Playlist`}
+                                    </h1>
+                                    <div className="w-5 h-0.5 rounded-full mx-auto mt-1" style={{ backgroundColor: moodColor }} />
+                                </div>
+                            ) : (
+                                <button
+                                    id="home-logo-btn"
+                                    onClick={() => { resetHomeState(); setView('landing'); }}
+                                    className="text-center hover:opacity-70 transition-opacity duration-200"
+                                    aria-label="Return to landing page"
+                                >
+                                    <h1 className="text-xs tracking-[0.3em] uppercase font-bold text-white/80">MoodBeats</h1>
+                                    <div className="w-5 h-0.5 rounded-full mx-auto mt-1" style={{ backgroundColor: moodColor }} />
+                                </button>
+                            )}
                             <UserMenu
                                 isSignedIn={!!isSignedIn}
                                 userName={user?.firstName || user?.username || null}
@@ -1397,54 +1424,7 @@ export default function Home() {
                             </div>
                         )}
 
-                        {/* Mood Card Grid — fills empty space when no songs are loaded */}
-                        {songs.length === 0 && !moodRecLoading && (
-                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-8 flex-1">
-                                <p className="text-[9px] tracking-[0.35em] uppercase text-center text-white/20 mb-5 font-semibold">
-                                    Explore Moods
-                                </p>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 max-w-5xl mx-auto">
-                                    {(['happy', 'sad', 'gym', 'study', 'rock'] as MoodType[]).map((mood, i) => (
-                                        <motion.button
-                                            key={mood}
-                                            onClick={() => void handleMoodSelect(mood)}
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: i * 0.08, duration: 0.5 }}
-                                            whileHover={{ y: -4, scale: 1.03 }}
-                                            whileTap={{ scale: 0.97 }}
-                                            className={`glass-card rounded-2xl p-5 sm:p-6 text-center group cursor-pointer transition-all duration-300 ${selectedMood === mood ? 'ring-1' : ''
-                                                }`}
-                                            style={selectedMood === mood ? {
-                                                borderColor: MOOD_CONFIG[mood].color + '60',
-                                                boxShadow: `0 0 30px ${MOOD_CONFIG[mood].color}20`,
-                                            } as any : {}}
-                                        >
-                                            <div
-                                                className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center text-3xl sm:text-4xl mb-3 mx-auto group-hover:scale-110 transition-transform duration-300"
-                                                style={{
-                                                    background: `${MOOD_CONFIG[mood].color}12`,
-                                                    border: `1px solid ${MOOD_CONFIG[mood].color}20`,
-                                                }}
-                                            >
-                                                {MOOD_CONFIG[mood].emoji}
-                                            </div>
-                                            <h3 className="text-sm sm:text-base font-bold text-white/80 mb-1 tracking-wider uppercase">
-                                                {MOOD_CONFIG[mood].label}
-                                            </h3>
-                                            <p className="text-[10px] sm:text-xs text-white/30 leading-relaxed">
-                                                {MOOD_CONFIG[mood].description}
-                                            </p>
-                                            {/* Accent line */}
-                                            <div
-                                                className="w-8 h-0.5 rounded-full mx-auto mt-3 opacity-40 group-hover:opacity-80 group-hover:w-12 transition-all duration-300"
-                                                style={{ backgroundColor: MOOD_CONFIG[mood].color }}
-                                            />
-                                        </motion.button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                        {/* BUG-2: Large mood card grid removed — pill row above is sufficient */}
 
                         {/* ===== RECENTLY PLAYED (anonymous: localStorage; signed-in uses server row below) ===== */}
                         {songs.length === 0 && !isSignedIn && recentlyPlayedLocal.length > 0 && (
@@ -1816,12 +1796,18 @@ export default function Home() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
                                 </svg>
                             </button>
-                            <div className="text-center relative z-30 pointer-events-auto">
+                            {/* Logo in playing view — click returns to landing (NAV-1) */}
+                            <button
+                                id="playing-logo-btn"
+                                onClick={() => { resetHomeState(); setView('landing'); }}
+                                className="text-center relative z-30 pointer-events-auto hover:opacity-70 transition-opacity duration-200"
+                                aria-label="Return to home"
+                            >
                                 <p className="text-[9px] tracking-[0.3em] uppercase text-white/70 drop-shadow-md font-bold">
                                     MoodBeats // Media
                                 </p>
                                 <p className="text-xs font-black tracking-widest uppercase drop-shadow-lg text-white">Now Playing</p>
-                            </div>
+                            </button>
                             <button onClick={toggleCinemaMode} className="p-1 relative z-30 pointer-events-auto group">
                                 <svg className="w-5 h-5 text-white/80 drop-shadow-md group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -2049,6 +2035,8 @@ function BottomNav({ active, onNav, moodColor, onPlaylist, onSettings, playlistO
     settingsOpen?: boolean;
     playlistCount?: number;
 }) {
+    // NAV-1: useTransition keeps the UI responsive during view switches.
+    const [isPending, startNavTransition] = useTransition();
     const items = [
         {
             id: 'home' as const,
@@ -2090,11 +2078,13 @@ function BottomNav({ active, onNav, moodColor, onPlaylist, onSettings, playlistO
                     return (
                         <button
                             key={item.id}
-                            onClick={() => onNav(item.id)}
+                            id={`nav-${item.id}-btn`}
+                            onClick={() => startNavTransition(() => onNav(item.id))}
+                            disabled={isPending}
                             className="flex flex-col items-center gap-0.5 min-w-[48px] min-h-[44px] justify-center px-2 py-1 rounded-xl transition-all duration-300"
                             style={isActive
                                 ? { color: moodColor, background: `${moodColor}14` }
-                                : { color: 'rgba(255,255,255,0.28)' }
+                                : { color: isPending ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.28)' }
                             }
                         >
                             {item.icon}

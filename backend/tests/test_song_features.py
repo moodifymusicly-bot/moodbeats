@@ -7,7 +7,11 @@ recommender's mood-match math stays predictable.
 
 import pytest
 
-from app.services.song_service import _MOOD_FEATURE_RANGES, _infer_features
+from app.services.song_service import (
+    DEFAULT_MOOD_TAG,
+    _MOOD_FEATURE_RANGES,
+    _infer_features,
+)
 
 
 @pytest.mark.parametrize("mood", list(_MOOD_FEATURE_RANGES.keys()))
@@ -30,3 +34,7 @@ def test_infer_features_unknown_mood_is_neutral():
 def test_infer_features_none_is_neutral():
     f = _infer_features(None)
     assert f["valence"] == 0.5
+
+
+def test_default_mood_tag_not_happy():
+    assert DEFAULT_MOOD_TAG == "unknown"

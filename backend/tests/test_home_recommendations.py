@@ -41,3 +41,4 @@ async def test_recommend_home_calls_get_home_feed():
         assert resp.cold_start is True
         assert resp.interaction_count == 0
         assert resp.starter_mood == "happy"
+        assert gh.await_args.kwargs["starter_mood"] == "happy"
