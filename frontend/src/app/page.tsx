@@ -215,7 +215,7 @@ export default function Home() {
     const loadHomeFeed = useCallback(async (force = false) => {
         if (!isSignedIn) return;
         // Skip re-fetch if data is fresh (< 60 s old) unless forced
-        if (!force && homeFeed && Date.now() - homeFeedFetchedAt.current < 60_000) return;
+        if (!force && homeFeedFetchedAt.current > 0 && Date.now() - homeFeedFetchedAt.current < 60_000) return;
         setHomeFeedLoading(true);
         try {
             const data = await api.getHomeRecommendations({
@@ -239,29 +239,28 @@ export default function Home() {
         } finally {
             setHomeFeedLoading(false);
         }
-    }, [api, isSignedIn, homeFeed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [api, isSignedIn]);
 
     const loadDiscoverFeed = useCallback(async () => {
         setDiscoverLoading(true);
         try {
-            const data = await api.getDiscoverFeed({
-                limit: 8,
-                ...(selectedMood ? { mood: selectedMood } : {}),
-            });
+            const data = await api.getDiscoverFeed({ limit: 8 });
             const map = (rows: Record<string, unknown>[]) =>
                 rows.map((s) => mapApiRecommendationToSong(s));
             setDiscoverFeed({
                 fresh_picks: map(data.fresh_picks ?? []),
                 timeless_classics: map(data.timeless_classics ?? []),
                 trending: map(data.trending ?? []),
-                suggested_mood: data.suggested_mood || selectedMood || 'neutral',
+                suggested_mood: data.suggested_mood || 'neutral',
             });
         } catch (e) {
             console.warn('loadDiscoverFeed failed', e);
         } finally {
             setDiscoverLoading(false);
         }
-    }, [api, selectedMood]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [api]);
 
     useEffect(() => {
         if (view === 'home' && isSignedIn) void loadHomeFeed();
@@ -1416,10 +1415,10 @@ export default function Home() {
                         </div>
 
                         {moodRecLoading && (
-                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-12 flex flex-col items-center justify-center gap-3">
-                                <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
-                                <p className="text-[10px] tracking-[0.35em] uppercase text-white/35 font-semibold">
-                                    Loading recommendations
+                            <div className="flex items-center justify-center gap-3 py-3 mt-2">
+                                <div className="w-5 h-5 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                                <p className="text-[10px] tracking-[0.35em] uppercase text-white/40 font-semibold">
+                                    Loading
                                 </p>
                             </div>
                         )}
@@ -1427,7 +1426,7 @@ export default function Home() {
                         {/* BUG-2: Large mood card grid removed — pill row above is sufficient */}
 
                         {/* ===== RECENTLY PLAYED (anonymous: localStorage; signed-in uses server row below) ===== */}
-                        {songs.length === 0 && !isSignedIn && recentlyPlayedLocal.length > 0 && (
+                        {songs.length === 0 && !moodRecLoading && !isSignedIn && recentlyPlayedLocal.length > 0 && (
                             <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-6 space-y-1">
                                 <div className="flex items-center gap-2 mb-2.5">
                                     <span className="text-base">🕐</span>
@@ -1460,7 +1459,7 @@ export default function Home() {
                         )}
 
                         {/* ===== DISCOVER FEED: Fresh Picks, Classics, Trending (all users) ===== */}
-                        {songs.length === 0 && (discoverLoading || discoverFeed) && (
+                        {songs.length === 0 && !moodRecLoading && (discoverLoading || discoverFeed) && (
                             <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
                                 {discoverLoading && !discoverFeed && (
                                     <div className="flex items-center justify-center gap-3 py-4">
@@ -1509,7 +1508,7 @@ export default function Home() {
                         )}
 
                         {/* ===== PERSONALIZED HOME FEED (signed-in users) — recent plays first, then for-you ===== */}
-                        {songs.length === 0 && isSignedIn && (homeFeedLoading || homeFeed) && (
+                        {songs.length === 0 && !moodRecLoading && isSignedIn && (homeFeedLoading || homeFeed) && (
                             <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-5 space-y-5">
                                 {homeFeedLoading && !homeFeed && (
                                     <div className="flex items-center justify-center gap-3 py-3">
@@ -1560,23 +1559,25 @@ export default function Home() {
                             </div>
                         )}
 
-                        {/* Optional Artist Filter */}
-                        <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4">
-                            <div className="relative max-w-2xl mx-auto">
-                                <input
-                                    type="text"
-                                    placeholder="Optional: Filter by Artist..."
-                                    value={artistFilter}
-                                    onChange={(e) => setArtistFilter(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all font-display tracking-widest uppercase text-center"
-                                />
-                                {artistFilter && (
-                                    <button onClick={() => setArtistFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/70">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                )}
+                        {/* Optional Artist Filter — only visible when songs are loaded */}
+                        {songs.length > 0 && (
+                            <div className="px-5 sm:px-8 lg:px-12 xl:px-20 mt-4">
+                                <div className="relative max-w-2xl mx-auto">
+                                    <input
+                                        type="text"
+                                        placeholder="Filter by Artist..."
+                                        value={artistFilter}
+                                        onChange={(e) => setArtistFilter(e.target.value)}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/25 focus:outline-none focus:border-white/25 focus:bg-white/8 transition-all font-display tracking-widest uppercase text-center"
+                                    />
+                                    {artistFilter && (
+                                        <button onClick={() => setArtistFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/30 hover:text-white/70">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* Song List */}
                         {songs.length > 0 && (
