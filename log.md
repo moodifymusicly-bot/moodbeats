@@ -1,5 +1,17 @@
 # MoodBeats Work Log
 
+## 2026-04-23 (Deploy reliability + UI overlap fixes + camera playback fix)
+- **Task**: Stabilize VPS deploy sessions, fix cross-view bottom overlap/centering issues, and restore reliable autoplay behavior after camera mood detection.
+- **What changed**:
+  - **`scripts/vps-sync-deploy.sh`**: Added SSH keepalive options (`ServerAliveInterval`, `ServerAliveCountMax`) and explicit rsync SSH transport (`-e "ssh ..."`), reducing disconnect risk during long remote image builds.
+  - **`docker-compose.yml`**: Removed obsolete top-level `version` field to eliminate noisy Compose warnings.
+  - **`frontend/src/app/page.tsx`**: `handleSongPlay` now supports an options object with `startMuted`. Camera mood autoplay passes `startMuted: true`, so browser autoplay policy is respected. Playlist playback now resolves and starts the first actually playable song via `handleAutoPlayFromCandidates` instead of blindly forcing `playlist.songs[0]`.
+  - **`frontend/src/views/HomeView.tsx`**, **`SearchView.tsx`**, **`TimelinePageView.tsx`**, **`PlayingView.tsx`**: Unified bottom safe-area padding for fixed `MiniPlayer` + `BottomNav`, removed duplicate over-padding in home song list, and improved small-screen behavior by allowing playing view vertical scrolling.
+  - **`frontend/src/views/HomeView.tsx`**, **`SearchView.tsx`**, **`TimelinePageView.tsx`**, **`PlayingView.tsx`**: Center headers now use a consistent absolute-centered title treatment to avoid visual drift when left/right controls differ.
+- **Why**: Deploys were intermittently dropping during remote `next build`; fixed bottom chrome was covering content in multiple views; camera-triggered playback was unintentionally unmuted and getting blocked by autoplay policies.
+- **Validation**: `npm run build` in `frontend` succeeds (Next.js build + type/lint checks); `ReadLints` reports no new linter errors in edited frontend files.
+- **Next action**: Run one full VPS deploy using `scripts/vps-sync-deploy.sh` and do a browser smoke pass on `/`, search, timeline, playing, and `/preview` against the public host.
+
 ## 2026-04-20 (Nav improvements + production readiness audit)
 - **Task**: Logo click → landing page from any view; NAV-1 `useTransition` for nav buttons; production-readiness audit; verify recommendation system per-user uniqueness.
 - **What changed**:
@@ -172,3 +184,123 @@
 - **Why**: Static audit of all 24 frontend API methods vs backend routes revealed these two concrete mismatches. All other routes matched correctly (methods, paths, auth requirements, response shapes).
 - **Validation**: All route paths verified: every `api.*` call in `page.tsx` and `api.ts` has a matching backend decorator + correct response model.
 - **Next action**: Deploy to VPS.
+
+---
+## 2026-04-22T22:18 — Bug fixes: slow load, no songs, UI layout
+
+### Task: Fix 4 reported issues
+1. App loads slowly / "no songs found for mood"
+2. API key access on VPS
+3. UI wacky after mood detection
+
+### Root causes identified:
+1. **`NEXT_PUBLIC_API_URL`** — local `.env` has `http://127.0.0.1:8001`. On VPS this must be set to the public sslip.io URL BEFORE the Docker build (it's baked in at build time). The VPS `.env` likely still has the localhost value or the wrong value.
+2. **`loadDiscoverFeed` useCallback dep bug** — `selectedMood` was in the deps array, causing the function to be re-created every time a mood was selected, which triggered the `useEffect` again → extra re-fetch on every mood click (slow load).
+3. **`loadHomeFeed` dep bug** — `homeFeed` was in the deps array, causing the hook to reconstruct the callback every time feed data arrived → potential re-render loop.
+4. **UI issues after mood detection**:
+   - Artist filter input always visible even before songs were loaded
+   - Discover/Home feeds continued to show alongside the loading spinner during `moodRecLoading`
+   - Loading spinner had too much top margin, pushing content down
+
+### Fixes applied (frontend/src/app/page.tsx):
+- Removed `homeFeed` from `loadHomeFeed` deps (use ref instead)
+- Removed `selectedMood` from `loadDiscoverFeed` deps (don't re-fetch on mood change, mood is only a nice-to-have hint)
+- `moodRecLoading` spinner now hides discover/home feeds with `!moodRecLoading` guard
+- Artist filter input now only renders when `songs.length > 0`
+- Spinner compacted (smaller size, less padding)
+
+### VPS deployment action required:
+- Run `bash /root/MoodBeats/scripts/vps-fix-and-redeploy.sh` from SSH session
+- This patches `.env` to set correct `NEXT_PUBLIC_API_URL`, `ALLOWED_ORIGINS`, rebuilds Docker stack, and runs health checks
+
+### Status: Done (local), VPS redeploy pending user action
+### Next: User runs vps-fix-and-redeploy.sh via SSH
+
+## 2026-04-23 (VPS API URL drift fix)
+- **Task**: Fix production URL/env drift causing frontend to call localhost (`NEXT_PUBLIC_API_URL=http://127.0.0.1:8001`) after deploy.
+- **What changed**:
+  - Updated `scripts/deploy-vps-from-dev.sh` to support optional `PUBLIC_HOST` and auto-patch VPS `.env` (`NEXT_PUBLIC_API_URL`, `ALLOWED_ORIGINS`) before rebuilding.
+  - Hardened `scripts/vps-fix-and-redeploy.sh`: repo auto-detection across `/moodbeats`, `/opt/moodbeats`, `/root/MoodBeats`; improved Caddy host detection; standardized `ALLOWED_ORIGINS` to the active HTTPS host.
+  - Updated `implementation.md` deployment section with the new guardrail.
+- **Why**: Rebuilds were succeeding but frontend remained miswired to localhost because build-time env values were stale on VPS.
+- **Next action**: Deploy with `PUBLIC_HOST=148.135.138.197.nip.io` and verify `.env` + browser network calls.
+
+## 2026-04-23 (mood-detection playback + UI overlap regression)
+- **Task**: Audit batch task list and fix post-detection regressions (overlap, missing controls, unreliable auto-play).
+- **What changed**:
+  - **Audit result**: Batch 1/2/3/5 implemented; Batch 4 partially implemented (`REC-1B` done, `REC-1A` missing - no `spotify_enrich.py` or Spotify client env usage).
+  - **`frontend/src/components/YouTubePlayer.tsx`**: added blocked-autoplay detection (`onAutoplayBlocked`) with delayed state checks after `playVideo()` so failed auto-start is detected reliably.
+  - **`frontend/src/app/page.tsx`**:
+    - added `autoplayBlocked` state and recovery CTA ("Tap to Start Playback") when browser blocks auto-play.
+    - now clears blocked state on manual/new play and on successful YouTube `playing` state.
+    - keeps YouTube visual layer visible in non-data-saver mode even when paused, preventing "missing video" perception.
+    - increased bottom padding in home/playing layouts to reduce control/nav overlap.
+- **Why**: Camera-driven mood detection is not always treated as a trusted media gesture by browsers. Without blocked-autoplay handling, users land in "Now Playing" with no active media and perceive controls/background as broken or missing.
+- **Next action**: Run frontend lint + manual flow check (Home -> detect mood -> auto transition -> verify controls/video/one-tap recovery).
+
+## 2026-04-23 (camera flow reliability hardening)
+- **Task**: Fix remaining issue where mood detection succeeds but playback does not start, and compact the detected-mood UI to avoid crowding.
+- **What changed**:
+  - **`frontend/src/app/page.tsx`**:
+    - Added `resolvePlayableSong()` to ensure a song has `audio_url` or `youtube_id` before playback.
+    - Added `handleAutoPlayFromCandidates()` for camera flow; replaced random auto-pick with bounded playable selection (up to 5 resolves).
+    - `handleSongPlay()` now returns success/failure and only transitions to `view='playing'` when media is playable.
+    - Added compact detected-mood header/card mode when songs are visible/loading to reduce overlap pressure.
+  - **`frontend/src/components/FaceCamera.tsx`**:
+    - Added finalize lock + timer refs to prevent duplicate `onMoodDetected` firing during celebration/transition windows.
+    - Reset lock/timer on restart, stop, deactivation, and unmount.
+- **Why**: Camera-triggered flow lacked a guaranteed playable first track and could transition to playing without media. Duplicate finalize triggers could also create state churn around detection completion.
+- **Validation**: Frontend lints for touched files are clean.
+- **Next action**: Manual smoke on Home -> Start detection -> auto-play transition; compare with manual play from recommendations/search.
+
+## 2026-04-23T23:05 (deployment script consolidation)
+- **Task**: Consolidate multiple deploy scripts into one persistent canonical local-to-VPS path.
+- **What changed**:
+  - Added `scripts/vps-sync-deploy.sh` as the single source-of-truth deployment script (local `rsync` + remote `docker compose up -d --build`, optional `PUBLIC_HOST` env patching, `DRY_RUN=1` support).
+  - Removed legacy deploy scripts: `scripts/deploy-vps-from-dev.sh`, `scripts/vps-deploy.sh`, `scripts/vps-fix-and-redeploy.sh`, `scripts/vps-deploy-from-bundle-url.sh`, `scripts/vps-pull-bundle-rebuild.sh`.
+  - Updated `implementation.md` and `README.md` to document that all agents/automation must use `scripts/vps-sync-deploy.sh`.
+- **Why**: Multiple deployment paths were drifting behavior and causing inconsistent VPS outcomes; a single canonical script enforces repeatable, auditable deploys.
+- **Next action**: Validate with `DRY_RUN=1 bash scripts/vps-sync-deploy.sh`, then run a real deploy and post-check with `bash scripts/vps-health-check.sh` on VPS.
+
+## 2026-04-23 (camera muted-autoplay + home overlap stabilization)
+- **Task**: Resolve persistent post-detection failures where playback does not reliably start and UI overlaps remain on home.
+- **What changed**:
+  - **`frontend/src/components/YouTubePlayer.tsx`**:
+    - Added reactive `muted` prop support.
+    - Player now initializes with `playerVars.mute` and applies `mute()`/`unMute()`
+      both on ready and when `muted` changes, without recreating the iframe.
+  - **`frontend/src/app/page.tsx`**:
+    - Added `isMuted` state.
+    - Camera-detection autoplay path now sets `isMuted=true` before transition to
+      playing, enabling browser-allowed muted autoplay.
+    - Direct user play paths set `isMuted=false`, preserving immediate audible
+      playback for manual clicks.
+    - Added prominent "Tap to Unmute" CTA in playing view when muted.
+    - Replaced the large post-detection mood block with a compact inline mood chip
+      + small re-detect button when recommendations are loading/visible.
+- **Why**: Browser autoplay policy blocks delayed unmuted playback after camera flow;
+  compact mode still used enough vertical space to collide with nearby sections on
+  small screens.
+- **Next action**: Run frontend lint and verify camera vs manual playback paths plus
+  mobile home layout behavior.
+
+## [2026-04-25] Redesign Now Playing / Player Screen
+- **Task**: Redesign `PlayingView.tsx` layout to use full screen.
+- **Changes**: 
+  - Restructured `PlayingView.tsx` to use `flex-col` with `h-[100dvh]`.
+  - Added Top Bar (48px) with Back, Now Playing, and Queue icons.
+  - Added Album Art taking up ~45% height using YouTube thumbnails (`maxresdefault.jpg` fallback to `hqdefault.jpg`).
+  - Added Track Info (10%), styled Progress Bar (8%), Controls (12%), Bottom Actions (8%).
+  - Removed "TAP TO START PLAYBACK" button.
+- **Why**: The player screen had ~70% empty black space and controls were stuck at the bottom.
+- **Next**: Verify the UI layout manually.
+
+## [2026-04-25] Complete Phase 3 UI Migration
+- **Task**: Execute Phase 3 Migration (Archive old UI, place new UI files, clean build system).
+- **Changes**:
+  - Archived old frontend files to `/UINew_backup/old-ui-archive/`.
+  - Copied new UI artifacts (`src/*`, `index.html`, `public/`, `components.json`) to `frontend/`.
+  - Set up a clean `vite.config.ts`, `tsconfig.json`, and `package.json` free of Replit dependencies and old Next.js configs.
+  - Installed dependencies via `npm install` and fixed the CSS `@import` warning in `index.css`.
+  - Verified `npm run build` succeeds successfully.
+- **Next**: Wait for the user to verify the changes and proceed to the next phase.

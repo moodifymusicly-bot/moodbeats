@@ -1,5 +1,3 @@
-version: '3.9'
-
 # One compose file, two deploy targets: laptop today, Debian VPS tomorrow.
 # All secrets come from `.env` (copy from `.env.example`). Never commit `.env`.
 

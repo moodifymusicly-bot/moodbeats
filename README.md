@@ -150,9 +150,13 @@ public URL users reach (for example `https://your-domain.com` or
 `ALLOWED_ORIGINS` to your site origin (comma-separated). Set a real
 `YOUTUBE_API_KEY` for live YouTube search (optional; curated fallback
 works without it).
-- From a dev machine with SSH to the VPS:
-[scripts/deploy-vps-from-dev.sh](scripts/deploy-vps-from-dev.sh) uploads a
-git bundle and runs `docker compose up -d --build`.
+- Canonical local-to-VPS deploy path (single source of truth):
+  [scripts/vps-sync-deploy.sh](scripts/vps-sync-deploy.sh)
+  - Syncs this local repo to VPS via `rsync` over SSH
+  - Optionally patches VPS `.env` with `PUBLIC_HOST` for
+    `NEXT_PUBLIC_API_URL` and `ALLOWED_ORIGINS`
+  - Rebuilds and restarts Docker stack with `docker compose up -d --build`
+  - Supports safe preview mode: `DRY_RUN=1 bash scripts/vps-sync-deploy.sh`
 - For a fresh Debian VPS: see
 [scripts/debian-vps-bootstrap.sh](scripts/debian-vps-bootstrap.sh)
 (installs Docker, clones repo, writes `.env`, boots compose, issues

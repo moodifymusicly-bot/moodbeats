@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MoodBeats | The Nocturnal Curator</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container": "#201f1f",
+                    "primary-container": "#ffbf00",
+                    "inverse-surface": "#e5e2e1",
+                    "outline": "#9c8f78",
+                    "on-secondary-container": "#dab36a",
+                    "primary": "#ffe2ab",
+                    "secondary-fixed-dim": "#e9c176",
+                    "on-primary-fixed": "#261a00",
+                    "on-tertiary": "#003640",
+                    "inverse-on-surface": "#313030",
+                    "error-container": "#93000a",
+                    "on-tertiary-fixed": "#001f26",
+                    "on-error-container": "#ffdad6",
+                    "tertiary-fixed": "#aaedff",
+                    "primary-fixed-dim": "#fbbc00",
+                    "on-primary-container": "#6d5000",
+                    "secondary": "#e9c176",
+                    "error": "#ffb4ab",
+                    "on-primary": "#402d00",
+                    "on-surface-variant": "#d4c5ab",
+                    "tertiary": "#b4efff",
+                    "on-surface": "#e5e2e1",
+                    "surface-bright": "#393939",
+                    "outline-variant": "#504532",
+                    "secondary-fixed": "#ffdea5",
+                    "on-secondary": "#412d00",
+                    "surface-container-high": "#2a2a2a",
+                    "on-tertiary-container": "#005d6d",
+                    "surface-dim": "#131313",
+                    "surface-variant": "#353534",
+                    "surface-container-lowest": "#0e0e0e",
+                    "primary-fixed": "#ffdfa0",
+                    "on-tertiary-fixed-variant": "#004e5c",
+                    "surface-container-highest": "#353534",
+                    "on-primary-fixed-variant": "#5c4300",
+                    "on-secondary-fixed": "#261900",
+                    "surface-tint": "#fbbc00",
+                    "on-secondary-fixed-variant": "#5d4201",
+                    "inverse-primary": "#795900",
+                    "tertiary-fixed-dim": "#00d9fc",
+                    "on-background": "#e5e2e1",
+                    "surface-container-low": "#1c1b1b",
+                    "secondary-container": "#604403",
+                    "tertiary-container": "#04dcff",
+                    "surface": "#131313",
+                    "on-error": "#690005",
+                    "background": "#131313"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "display": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body { background-color: #131313; color: #e5e2e1; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24;
+        }
+        .viewfinder-corner {
+            width: 40px;
+            height: 40px;
+            border-color: #ffe2ab;
+            position: absolute;
+        }
+        .glass-panel {
+            background: rgba(32, 31, 31, 0.4);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container/30">
+<!-- TopAppBar -->
+<header class="docked full-width top-0 sticky z-50 bg-surface/80 dark:bg-[#131313]/80 backdrop-blur-3xl transition-colors duration-500 bg-gradient-to-b from-[#1C1B1B] to-transparent shadow-2xl shadow-[#0E0E0E]/50">
+<div class="flex justify-between items-center w-full px-6 py-4 max-w-screen-2xl mx-auto">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-[#FFE2AB] to-[#FFBF00] font-manrope">MoodBeats</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-primary dark:text-[#FFBF00] relative after:content-[''] after:absolute after:-bottom-2 after:left-1/2 after:-translate-x-1/2 after:w-1 after:h-1 after:bg-primary after:rounded-full font-manrope font-bold tracking-tighter uppercase text-sm" href="#">Discover</a>
+<a class="text-on-surface-variant dark:text-zinc-500 font-medium hover:text-primary dark:hover:text-[#FFE2AB] transition-all duration-300 font-manrope tracking-tighter uppercase text-sm" href="#">Curators</a>
+<a class="text-on-surface-variant dark:text-zinc-500 font-medium hover:text-primary dark:hover:text-[#FFE2AB] transition-all duration-300 font-manrope tracking-tighter uppercase text-sm" href="#">Archives</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-primary scale-95 active:scale-90 transition-transform p-2">photo_camera</button>
+<button class="material-symbols-outlined text-primary scale-95 active:scale-90 transition-transform p-2">settings</button>
+</div>
+</div>
+</header>
+<main>
+<!-- Hero Section -->
+<section class="relative min-h-screen flex flex-col items-center justify-center pt-20 overflow-hidden bg-surface-container-lowest">
+<!-- Amber Spotlight -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/5 rounded-full blur-[120px] pointer-events-none"></div>
+<div class="z-10 text-center max-w-4xl px-6">
+<h1 class="font-headline font-extrabold text-6xl md:text-8xl tracking-tighter text-primary mb-6 leading-none">
+                    SOUNDTRACKING <br/> <span class="text-on-surface-variant">YOUR EMOTION</span>
+</h1>
+<p class="font-body text-on-surface-variant/80 text-lg md:text-xl max-w-2xl mx-auto mb-12">
+                    Our AI-driven curator scans your visual aura to manifest a nocturnal soundscape tailored to your current psyche.
+                </p>
+</div>
+<!-- Viewfinder Camera Interface -->
+<div class="relative z-20 w-full max-w-3xl aspect-video px-4 mb-16">
+<div class="relative w-full h-full overflow-hidden bg-surface-container-low group">
+<img class="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-1000" data-alt="Cinematic close-up of a moody portrait with dramatic side lighting and soft shadows in a dark architectural space" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD93Ln7d4L0RW1hvbUdmeP_VuTS7_l0b3gE6tJBFfPQMeHFOoFBJ-ogMWrxQ2nsuS0AkkGDYJO7aX_fgjAeN-l6FpvBxF6m1CRuEGBoSU4JHreKHOZnbPkdp9O5zwpooE4qBDaFFt47tzMGcsLjxv-Ffw3mAgk3OcCs3CQGj84I3X01WNgSl1nroqSjEx8fnJF-1QRpIoldCKUogTB3onEeMyqLN1aCtZ45C2QsOShOPihJqiz9IDLPMY99VgHWlCOhTbR93JZKwiew"/>
+<!-- Viewfinder Elements -->
+<div class="absolute top-8 left-8 viewfinder-corner border-t border-l"></div>
+<div class="absolute top-8 right-8 viewfinder-corner border-t border-r"></div>
+<div class="absolute bottom-8 left-8 viewfinder-corner border-b border-l"></div>
+<div class="absolute bottom-8 right-8 viewfinder-corner border-b border-r"></div>
+<!-- Center Crosshair -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+<div class="w-8 h-px bg-primary/40"></div>
+<div class="h-8 w-px bg-primary/40 absolute"></div>
+<div class="w-32 h-32 rounded-full border border-primary/20 animate-pulse"></div>
+</div>
+<!-- Scanning Metadata -->
+<div class="absolute bottom-12 left-12 font-manrope text-[10px] tracking-[0.2em] text-primary uppercase flex flex-col gap-1">
+<span class="flex items-center gap-2"><span class="w-1 h-1 bg-primary rounded-full"></span> BIOMETRIC FEED: ACTIVE</span>
+<span class="flex items-center gap-2"><span class="w-1 h-1 bg-primary rounded-full"></span> SPECTRAL ANALYSIS: 82%</span>
+</div>
+<div class="absolute top-12 right-12 glass-panel px-4 py-2 rounded-lg border border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">circle</span>
+<span class="font-manrope text-xs font-bold text-primary tracking-widest uppercase">REC</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Mood Selection Pills -->
+<div class="flex flex-wrap justify-center gap-4 px-6 max-w-5xl mb-24">
+<button class="px-8 py-3 rounded-full border border-outline-variant/30 text-on-surface-variant font-manrope text-xs tracking-widest uppercase hover:bg-primary-container hover:text-on-primary-container transition-all duration-300">Nocturnal</button>
+<button class="px-8 py-3 rounded-full bg-primary-container text-on-primary-container font-manrope text-xs tracking-widest uppercase shadow-xl shadow-primary-container/10">Melancholy</button>
+<button class="px-8 py-3 rounded-full border border-outline-variant/30 text-on-surface-variant font-manrope text-xs tracking-widest uppercase hover:bg-primary-container hover:text-on-primary-container transition-all duration-300">Ethereal</button>
+<button class="px-8 py-3 rounded-full border border-outline-variant/30 text-on-surface-variant font-manrope text-xs tracking-widest uppercase hover:bg-primary-container hover:text-on-primary-container transition-all duration-300">Kinetic</button>
+<button class="px-8 py-3 rounded-full border border-outline-variant/30 text-on-surface-variant font-manrope text-xs tracking-widest uppercase hover:bg-primary-container hover:text-on-primary-container transition-all duration-300">Liminal</button>
+</div>
+</section>
+<!-- Bento Grid Feature Section -->
+<section class="bg-surface py-32 px-6">
+<div class="max-w-screen-2xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- Large Feature -->
+<div class="md:col-span-8 bg-surface-container rounded-xl overflow-hidden relative min-h-[500px] flex items-end p-12 group">
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest to-transparent z-10"></div>
+<img class="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-[3s]" data-alt="Abstract light trails of blue and gold in a dark environment creating a sense of movement and energy" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1FaeHpTucXopqbELE_nWbH8ZAnFW76QnEGlurbQyYji2-EJ1K0cRWVf_Wy0-rDEQWwxjLYMkkWsBbI-AwAtJoXJOmY5RbclA1JkYOKonN15XV7sAKUKPqIGtyD2fID8htvO5GNslxiRzMuGmr8M1BvRo9Zy1m-VnzhONDNrpN_lp1aGIvTgN4Lp7OBw3kpYLdvIC212zaSVS8OmMrqDyHHBaIuQjSUBAaHTP2mNObNs0oDT4Szsq-jF8Sb0taXwAoLLXubzc56gvA"/>
+<div class="relative z-20">
+<span class="font-manrope text-primary text-xs tracking-[0.4em] uppercase mb-4 block">The Algorithm</span>
+<h2 class="font-headline text-5xl font-bold text-on-surface tracking-tighter mb-6 max-w-xl">Curating the invisible threads of sound.</h2>
+<button class="flex items-center gap-3 text-primary font-manrope text-xs tracking-widest uppercase group/btn">
+                            Explore Archives 
+                            <span class="material-symbols-outlined text-sm group-hover/btn:translate-x-2 transition-transform">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Small Feature 1 -->
+<div class="md:col-span-4 bg-surface-container-high rounded-xl p-8 flex flex-col justify-between border border-outline-variant/10">
+<div>
+<span class="material-symbols-outlined text-primary-container text-4xl mb-6">graphic_eq</span>
+<h3 class="font-headline text-2xl font-bold text-on-surface tracking-tight mb-4">Atmospheric Depth</h3>
+<p class="font-body text-on-surface-variant text-sm leading-relaxed">Spatial audio integration that transforms your room into a private cinematic stage.</p>
+</div>
+<div class="mt-8 pt-8 border-t border-outline-variant/10">
+<div class="flex justify-between items-center text-[10px] font-manrope text-outline tracking-widest uppercase">
+<span>Precision Control</span>
+<span>99.2% Fidelity</span>
+</div>
+</div>
+</div>
+<!-- Small Feature 2 -->
+<div class="md:col-span-4 bg-surface-container-high rounded-xl p-8 flex flex-col justify-between border border-outline-variant/10">
+<div>
+<span class="material-symbols-outlined text-primary-container text-4xl mb-6">filter_vintage</span>
+<h3 class="font-headline text-2xl font-bold text-on-surface tracking-tight mb-4">Analog Soul</h3>
+<p class="font-body text-on-surface-variant text-sm leading-relaxed">Emulating the warmth of vinyl and the hiss of tape for digital convenience.</p>
+</div>
+<div class="mt-8 pt-8 border-t border-outline-variant/10">
+<div class="flex -space-x-3">
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-high bg-zinc-800 flex items-center justify-center text-[10px] font-bold">MB</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-high bg-primary-container flex items-center justify-center text-[10px] text-on-primary font-bold">JL</div>
+<div class="w-8 h-8 rounded-full border-2 border-surface-container-high bg-zinc-600 flex items-center justify-center text-[10px] font-bold">+</div>
+</div>
+</div>
+</div>
+<!-- Long Feature -->
+<div class="md:col-span-8 bg-surface-container rounded-xl overflow-hidden relative flex items-center p-12 border border-outline-variant/5">
+<div class="flex-1 max-w-md relative z-10">
+<h3 class="font-headline text-3xl font-bold text-on-surface tracking-tighter mb-4">Nocturnal Insights</h3>
+<p class="font-body text-on-surface-variant text-sm leading-relaxed mb-8">Weekly deep-dives into the psychology of sound and the artists shaping the new age of ambient electronica.</p>
+<div class="flex gap-4">
+<div class="h-12 px-6 glass-panel rounded-lg flex items-center justify-center font-manrope text-[10px] tracking-widest uppercase text-primary cursor-pointer hover:bg-primary/10 transition-colors">Read Journal</div>
+</div>
+</div>
+<div class="absolute right-[-10%] top-0 bottom-0 w-1/2 opacity-20 md:opacity-100">
+<img class="h-full w-full object-cover grayscale" data-alt="Close up of a premium turntable needle on a black vinyl record with golden ambient lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCSCSOMO_NRcrN-6Ij2dWTdtQay3Ud6y9TBlvQsHsBeSDKxtRuFRTeEDH9sYmkxMii_a6imgQdocJHFkc3AZEyBfCi85FSp0nL4QLBpAj7dcjekAFjJGVwz5LnZcidkSz244S2ybmpCGafKjkVKZl1OSH4JeG87G2mzYBB82I0MWmq3a7bqgUPrOSRBHCz8EiiRTC1SE21iRh0TExuerQt1b3vKQ_La0hlcE4_Uw8P6e8YrtNdYJS_AKlj68qsZAkbFI5Gbtjs1AGQe"/>
+</div>
+</div>
+</div>
+</section>
+<!-- Newsletter / CTA -->
+<section class="bg-surface-container-lowest py-32 px-6">
+<div class="max-w-4xl mx-auto text-center">
+<div class="inline-block px-4 py-1 rounded-full border border-primary/20 mb-8">
+<span class="font-manrope text-[10px] tracking-[0.4em] text-primary uppercase">Exclusive Access</span>
+</div>
+<h2 class="font-headline text-5xl font-bold text-on-surface tracking-tighter mb-12">BECOME A CURATOR.</h2>
+<div class="flex flex-col md:flex-row gap-4 items-center">
+<input class="w-full md:flex-1 h-16 bg-surface-container-low border-b border-primary/20 text-on-surface px-6 focus:outline-none focus:border-primary transition-colors font-body" placeholder="Enter your nocturnal address" type="email"/>
+<button class="w-full md:w-auto h-16 px-12 bg-gradient-to-br from-[#FFE2AB] to-[#FFBF00] text-on-primary font-manrope font-bold text-xs tracking-widest uppercase rounded-lg hover:scale-105 transition-transform">Join The Inner Circle</button>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="w-full py-12 bg-surface-container-lowest dark:bg-[#0E0E0E] border-t border-[#504532]/10">
+<div class="flex flex-col md:flex-row justify-between items-center px-10 gap-6">
+<div class="flex flex-col items-center md:items-start gap-2">
+<span class="font-manrope font-bold text-[#FFE2AB] tracking-tighter text-xl">MoodBeats</span>
+<p class="font-inter text-xs tracking-widest uppercase text-on-surface-variant/60">© 2024 MoodBeats. The Nocturnal Curator.</p>
+</div>
+<div class="flex gap-8">
+<a class="font-inter text-xs tracking-widest uppercase text-on-surface-variant/60 hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">Atmosphere</a>
+<a class="font-inter text-xs tracking-widest uppercase text-on-surface-variant/60 hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">Technical</a>
+<a class="font-inter text-xs tracking-widest uppercase text-on-surface-variant/60 hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">Legal</a>
+</div>
+<div class="flex gap-4">
+<button class="material-symbols-outlined text-primary opacity-60 hover:opacity-100 transition-opacity">share</button>
+<button class="material-symbols-outlined text-primary opacity-60 hover:opacity-100 transition-opacity">headphones</button>
+</div>
+</div>
+</footer>
+</body></html>
