@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Play, Shuffle, Clock, Loader2 } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { usePlayer } from "@/lib/PlayerContext";
@@ -8,6 +9,8 @@ import { api } from "@/lib/api";
 import { Song } from "@/lib/types";
 import { mapAbstractMoodToBackend } from "@/lib/mood-mapping";
 import { getMoodTheme } from "@/lib/mood-theme";
+import { PlaylistRowSkeleton } from "@/components/layout/TrackRowSkeleton";
+import { normalizeYouTubeThumbnail } from "@/lib/utils";
 
 const formatDuration = (seconds: number) => {
   const m = Math.floor(seconds / 60);
@@ -39,26 +42,79 @@ export default function MoodPlaylist() {
 
   const playlist: Song[] = recommendations?.songs || [];
 
-  const totalSeconds = playlist.reduce((sum, t) => sum + (t.duration || 0), 0);
+  // ---- Infinite scroll state ----
+  // `extendedPlaylist` is the local mutable copy that grows as the user scrolls.
+  const [extendedPlaylist, setExtendedPlaylist] = useState<Song[]>([]);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const isFetchingRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  // Sync extendedPlaylist when the initial query lands
+  useEffect(() => {
+    if (recommendations?.songs) {
+      setExtendedPlaylist(recommendations.songs);
+    }
+  }, [recommendations?.songs]);
+
+  // Fetch next batch and append, avoiding duplicates
+  const fetchMore = useCallback(async () => {
+    if (isFetchingRef.current || extendedPlaylist.length === 0) return;
+    isFetchingRef.current = true;
+    setIsFetchingMore(true);
+    try {
+      const excludeIds = extendedPlaylist.map((s) => s.id);
+      const data = await api.getQueueAheadRecommendations(backendMood, excludeIds, 10);
+      const newSongs: Song[] = (data?.songs ?? []).filter(
+        (s: Song) => !excludeIds.includes(s.id)
+      );
+      if (newSongs.length > 0) {
+        setExtendedPlaylist((prev) => [...prev, ...newSongs]);
+      }
+    } catch (e) {
+      console.warn('[MoodPlaylist] Failed to load more songs:', e);
+    } finally {
+      isFetchingRef.current = false;
+      setIsFetchingMore(false);
+    }
+  }, [backendMood, extendedPlaylist]);
+
+  // IntersectionObserver: fires when the sentinel div enters the viewport
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    observerRef.current?.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          fetchMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observerRef.current.observe(sentinelRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [fetchMore]);
+
+  const totalSeconds = extendedPlaylist.reduce((sum, t) => sum + (t.duration || 0), 0);
 
   const onPlay = (track: Song) => {
-    playTrack(track, mood);
+    playTrack(track, mood, extendedPlaylist);
     setLocation("/player");
   };
 
   const onPlayAll = () => {
-    if (playlist.length > 0) onPlay(playlist[0]);
+    if (extendedPlaylist.length > 0) onPlay(extendedPlaylist[0]);
   };
 
   const onShuffle = () => {
-    if (playlist.length > 0) {
-      const random = playlist[Math.floor(Math.random() * playlist.length)];
+    if (extendedPlaylist.length > 0) {
+      const random = extendedPlaylist[Math.floor(Math.random() * extendedPlaylist.length)];
       onPlay(random);
     }
   };
 
   return (
-    <div className="relative min-h-[100dvh] pb-40 overflow-x-hidden">
+    <div className="relative h-[100dvh] overflow-y-auto overflow-x-hidden pb-safe-nav">
       {/* Hero gradient */}
       <div className={`absolute inset-x-0 top-0 h-[60vh] bg-gradient-to-b ${theme.hero} pointer-events-none`} />
       <motion.div
@@ -111,7 +167,7 @@ export default function MoodPlaylist() {
           transition={{ delay: 0.3 }}
           className="mt-6 flex items-center justify-center gap-3 text-xs text-muted-foreground/80"
         >
-          <span>{playlist.length} tracks</span>
+          <span>{extendedPlaylist.length} tracks</span>
           <span className="w-1 h-1 rounded-full bg-muted-foreground/40" />
           <span>{formatTotal(totalSeconds)}</span>
           <span className="w-1 h-1 rounded-full bg-muted-foreground/40" />
@@ -154,17 +210,19 @@ export default function MoodPlaylist() {
           <Clock size={12} />
         </div>
         {isLoading ? (
-          <div className="flex justify-center py-12 text-primary">
-            <Loader2 className="animate-spin" size={32} />
+          <div className="glass-panel rounded-2xl divide-y divide-white/5 overflow-hidden">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <PlaylistRowSkeleton key={`skel-${i}`} />
+            ))}
           </div>
         ) : (
           <div className="glass-panel rounded-2xl divide-y divide-white/5 overflow-hidden">
-            {playlist.map((track, i) => (
+            {extendedPlaylist.map((track, i) => (
             <motion.button
               key={track.id}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.5 + i * 0.04 }}
+              transition={{ delay: 0.5 + Math.min(i, 10) * 0.04 }}
               onClick={() => onPlay(track)}
               className="w-full flex items-center gap-3 p-3 hover:bg-white/5 transition-colors text-left group"
             >
@@ -172,7 +230,7 @@ export default function MoodPlaylist() {
                 {(i + 1).toString().padStart(2, "0")}
               </span>
               <div className="w-11 h-11 rounded-lg overflow-hidden flex-none relative">
-                <img src={track.cover_url || ""} alt={track.title} className="w-full h-full object-cover" />
+                <img src={normalizeYouTubeThumbnail(track.cover_url) || ""} alt={track.title} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <Play size={14} fill="currentColor" className="text-primary-foreground" />
                 </div>
@@ -186,9 +244,20 @@ export default function MoodPlaylist() {
               </span>
             </motion.button>
             ))}
-            {playlist.length === 0 && (
+            {extendedPlaylist.length === 0 && (
               <div className="p-6 text-center text-muted-foreground text-sm font-light">
                 No tracks found for this mood.
+              </div>
+            )}
+
+            {/* Sentinel: IntersectionObserver target for infinite scroll */}
+            <div ref={sentinelRef} className="h-1" aria-hidden="true" />
+
+            {/* Loading indicator — visible while fetching more songs */}
+            {isFetchingMore && (
+              <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground/60">
+                <Loader2 size={13} className="animate-spin" />
+                <span>Loading more…</span>
               </div>
             )}
           </div>

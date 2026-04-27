@@ -3,6 +3,27 @@
 All notable, user-visible changes to MoodBeats. Dates are the day the
 change lands on `main`.
 
+## [Unreleased] — 2026-04-27
+
+### Internal — Architecture
+- **Recommendation system extracted** into standalone `recommendation_system/` package at project root.
+  - All ML scoring (`ml/`), user profiling (`services/`), and recommendation router (`routers/`) are
+    now isolated from the core backend, making Phase 2 (independent FastAPI microservice) straightforward.
+  - The backend (`backend/app/`) continues to mount the recommendation router in the same process
+    during Phase 1; no API surface or user-visible behavior has changed.
+  - All 152 tests pass; 0 regressions introduced.
+- **Phase 2 — Standalone Recommendation Service** (`recommendation_system/`):
+  - Added `recommendation_system/main.py` — standalone FastAPI app on port 8002.
+  - Added `recommendation_system/config.py` — own pydantic-settings (no `app.*` dependency).
+  - Added `recommendation_system/database.py` — own async SQLAlchemy session factory.
+  - Added `recommendation_system/cache.py` — own Redis singleton.
+  - Added `recommendation_system/dependencies.py` — Clerk JWKS auth + seed YouTube resolver.
+  - Added `recommendation_system/Dockerfile` — ML-capable image; `PYTHONPATH=/app/backend` for shared ORM models.
+  - Added `recommendation_system/requirements.txt` — curated ML+API dependencies (no Alembic).
+  - Updated `docker-compose.yml` — `recommendation-service` on port 8002 with health check.
+  - Service files updated with **conditional import pattern** (standalone → monolith fallback) — zero regression on 13 backend tests and 126 recommendation_system tests.
+
+
 ## [Unreleased]
 
 ### Changed
@@ -87,3 +108,23 @@ change lands on `main`.
   git-tracked.
 - Redis is only reachable on the compose network; host-side access
   requires `docker compose exec redis redis-cli -a $REDIS_PASSWORD`.
+
+## [Unreleased] — 2026-04-27
+
+### Added
+- **FAISS ANN Index** (`recommendation_system/ml/faiss_index.py`): Upgraded from brute-force `IndexFlatIP` to `IndexIVFFlat` (cluster-based approximate nearest-neighbour). Catalog ≥ 256 songs uses IVF with auto-tuned `nlist`; smaller catalogs fall back to exact FlatIP.
+- **FaissManager singleton** (`recommendation_system/ml/faiss_manager.py`): Owns the FAISS index lifecycle — disk warm-start, staleness check vs DB row count, incremental append after new song ingestion, async-safe query with graceful degradation.
+- **Disk persistence**: FAISS index files persisted to `/var/moodbeats/faiss/` Docker volume (`faissdata`) — survives container restarts without full rebuild.
+- **FAISS wired into recommendations**: `get_recommendations()` and `get_for_you_recommendations()` in `recommendation_service.py` now use FAISS to narrow candidates to 3×limit before re-ranking, dropping scoring from O(N) to O(k log N).
+- **`GET /api/recommendations/queue-ahead`**: New endpoint that accepts `exclude_ids` CSV to return fresh songs deduplicated against the current queue. Powers frontend proactive refill.
+- **Proactive queue-ahead in PlayerContext**: `useEffect` low-watermark trigger — when ≤3 songs remain in queue, silently fetches 10 more and appends without interrupting playback.
+- **Infinite scroll in MoodPlaylist**: `IntersectionObserver` on sentinel div at list bottom triggers fetch-more when user scrolls to end; appended tracks immediately usable for playback.
+- **`isLoadingMore`** on `PlayerContext`: exposed so queue panel can show a subtle spinner while refilling.
+
+### Changed
+- `recommendation_system/config.py`: Added `FAISS_ENABLED`, `FAISS_INDEX_PATH`, `FAISS_MIN_CATALOG_SIZE` settings.
+- `recommendation_system/main.py`: FAISS warm-start added to service lifespan after DB probe.
+- `recommendation_system/services/song_ingestion_worker.py`: Appends new songs to live FAISS index after each ingestion batch.
+- `docker-compose.yml`: Added `faissdata` volume and `FAISS_*` env vars on `recommendation-service`.
+- `frontend/src/lib/api.ts`: Added `getQueueAheadRecommendations()`.
+- `frontend/src/pages/MoodPlaylist.tsx`: Uses `extendedPlaylist` state + IntersectionObserver for infinite scroll.

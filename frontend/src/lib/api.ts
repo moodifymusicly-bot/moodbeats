@@ -144,6 +144,26 @@ export class ApiClient {
         return this.request<any>(`/api/recommendations/for-you?limit=${limit}`);
     }
 
+    /**
+     * Fetch the next batch of songs for a proactive queue refill.
+     *
+     * Sends currently-queued song IDs as `exclude_ids` so the server never
+     * returns a duplicate. Called automatically by PlayerContext when the
+     * queue drops below the low-watermark, and by MoodPlaylist on scroll.
+     */
+    async getQueueAheadRecommendations(
+        mood: string,
+        excludeIds: string[],
+        limit: number = 10,
+    ) {
+        const q = new URLSearchParams({
+            mood: mood,
+            limit: String(limit),
+            exclude_ids: excludeIds.join(','),
+        });
+        return this.request<any>(`/api/recommendations/queue-ahead?${q.toString()}`);
+    }
+
     /** Discovery feed: fresh picks, timeless classics, trending. Works for anonymous + signed-in. */
     async getDiscoverFeed(params: { mood?: string; limit?: number } = {}) {
         const q = new URLSearchParams();
@@ -217,12 +237,51 @@ export class ApiClient {
     // ===== YouTube (server-side proxy; key never ships to browser) =====
     async searchYouTube(q: string, limit: number = 12): Promise<YouTubeSearchResponse> {
         const query = new URLSearchParams({ q, limit: String(limit) });
-        return this.request<YouTubeSearchResponse>(`/api/youtube/search?${query.toString()}`);
+        const res = await this.request<YouTubeSearchResponse>(`/api/youtube/search?${query.toString()}`);
+        // Normalise any hqdefault.jpg URLs that may arrive from cached API
+        // responses — mqdefault.jpg is guaranteed 16:9 (no black bars).
+        if (res.items) {
+            res.items = res.items.map(item => ({
+                ...item,
+                cover_url: item.cover_url?.replace(/hqdefault\.jpg/, 'mqdefault.jpg') ?? item.cover_url,
+            }));
+        }
+        return res;
     }
 
     // ===== YouTube Health =====
     async youtubeHealth(): Promise<{ configured: boolean; valid: boolean; error?: string }> {
         return this.request<{ configured: boolean; valid: boolean; error?: string }>('/api/youtube/health');
+    }
+
+    // ===== Search History (Phase 5 — Recently Searched) =====
+    // NOTE: Save/like functionality uses the existing /api/library/likes
+    // endpoints (likeSong / unlikeSong above). These methods are specifically
+    // for the "recently searched" Spotify-style dropdown in the Search page.
+
+    /** Save (or refresh) a search term in the user's history. */
+    async addSearchHistory(term: string): Promise<{ term: string; searched_at: string }> {
+        return this.request<{ term: string; searched_at: string }>('/api/search/history', {
+            method: 'POST',
+            body: JSON.stringify({ term }),
+        });
+    }
+
+    /** Retrieve the last 8 search terms (newest first). */
+    async getSearchHistory(): Promise<Array<{ term: string; searched_at: string }>> {
+        return this.request<Array<{ term: string; searched_at: string }>>('/api/search/history');
+    }
+
+    /** Remove a single term from history. */
+    async deleteSearchHistory(term: string): Promise<void> {
+        return this.request<void>(`/api/search/history/${encodeURIComponent(term)}`, {
+            method: 'DELETE',
+        });
+    }
+
+    /** Clear the entire search history for the current user. */
+    async clearSearchHistory(): Promise<void> {
+        return this.request<void>('/api/search/history', { method: 'DELETE' });
     }
 
     // ===== Health =====
