@@ -494,12 +494,21 @@ async def get_recommendations(
     limit: int = 20,
     exclude_ids: list[uuid.UUID] | None = None,
     seed_catalog_only: bool = False,
+    skip_penalty_ids: list[uuid.UUID] | None = None,
 ) -> tuple[list[dict], bool]:
     """Mood-based recommendations. Returns `(results, cached)`.
 
     Cache key includes a user segment because ranking uses per-user taste
     and skip penalties when `user_id` is set. Anonymous callers share
     ``u:anon``.
+
+    A3 — In-session skip cluster penalty
+    --------------------------------------
+    When ``skip_penalty_ids`` is provided (3+ consecutive skips), the feature
+    centroid of those songs is computed.  Any candidate within cosine distance
+    ``A3_SKIP_CLUSTER_RADIUS`` of the centroid receives a ``A3_SKIP_CLUSTER_PENALTY``
+    score multiplier.  This steers the session away from the rejected audio cluster
+    without permanently altering the user’s long-term taste vector.
     """
     cache_key = mood_reco_cache_key(mood, limit, user_id, seed_catalog_only)
     if not exclude_ids:
@@ -554,6 +563,28 @@ async def get_recommendations(
 
     counter_map = await _popularity_scores([s.id for s in all_songs])
 
+    # A3: build skip-cluster centroid when skip_penalty_ids are provided
+    # Load the skipped songs' feature vectors once and average them.
+    # We use song_feature_vector() from user_preference so the 6-D space matches.
+    A3_SKIP_CLUSTER_RADIUS: float = 0.15   # cosine-space proximity threshold
+    A3_SKIP_CLUSTER_PENALTY: float = 0.80  # multiply score by this (20% down)
+    skip_cluster_centroid: np.ndarray | None = None
+    if skip_penalty_ids:
+        skipped_rows = await db.execute(
+            select(Song).where(Song.id.in_(skip_penalty_ids))
+        )
+        skipped_songs = skipped_rows.scalars().all()
+        if skipped_songs:
+            from recommendation_system.services.user_preference import song_feature_vector as _sfv
+            vecs = np.stack([_sfv(s) for s in skipped_songs], axis=0)
+            centroid = vecs.mean(axis=0)
+            cnorm = float(np.linalg.norm(centroid))
+            skip_cluster_centroid = centroid / cnorm if cnorm > 1e-8 else None
+            logger.debug(
+                "[RecoService] A3 skip cluster centroid built from %d skipped songs.",
+                len(skipped_songs),
+            )
+
     # REC-4: Soft cold-start blend — interpolate weights based on how
     # "warm" the user profile is, using the unit-vector presence as proxy.
     alpha_eff, beta_eff = ALPHA, BETA
@@ -599,6 +630,24 @@ async def get_recommendations(
                 "[RecoService] Placeholder penalty applied to song_id=%s (v1 features).",
                 song.id,
             )
+
+        # A3: In-session skip cluster penalty.
+        # If this song is in the same feature cluster as the songs the user just
+        # skipped, apply an additional multiplier to steer away from that cluster.
+        if skip_cluster_centroid is not None:
+            from recommendation_system.services.user_preference import song_feature_vector as _sfv
+            sv_6d = _sfv(song)
+            sv_norm = float(np.linalg.norm(sv_6d))
+            if sv_norm > 1e-8:
+                cos_to_cluster = float(np.dot(sv_6d / sv_norm, skip_cluster_centroid))
+                # cos_to_cluster in [-1, 1]; high value = close to skipped cluster
+                if cos_to_cluster > (1.0 - A3_SKIP_CLUSTER_RADIUS):
+                    final_score *= A3_SKIP_CLUSTER_PENALTY
+                    logger.debug(
+                        "[RecoService] A3 skip cluster penalty song_id=%s cos=%.3f",
+                        song.id,
+                        cos_to_cluster,
+                    )
 
         final_score = float(max(0.0, final_score))
         sv = "v2" if (ENABLE_V2_SCORING and song.arousal is not None) else "v1"

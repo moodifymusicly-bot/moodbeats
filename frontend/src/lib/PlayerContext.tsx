@@ -25,6 +25,8 @@ interface PlayerState {
   registerSeek: (seekFn: (time: number) => void) => void;
   /** True while a background queue-ahead fetch is in flight. */
   isLoadingMore: boolean;
+  /** Manually request more songs for the queue (e.g. on scroll-to-bottom). */
+  requestMoreQueue: () => void;
 }
 
 const PlayerContext = createContext<PlayerState | undefined>(undefined);
@@ -43,7 +45,26 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   /** True while a silent queue-ahead fetch is in-flight. */
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isLoadingMoreRef = useRef(false); // ref for closure safety in useEffect
-  
+
+  // Track all song IDs seen in this player session to prevent duplicates
+  const seenIdsRef = useRef<Set<string>>(new Set());
+
+  // A3: track consecutive skips to detect in-session interest drift.
+  // After SKIP_DRIFT_THRESHOLD consecutive manual skips, force a fresh queue fetch
+  // so the user escapes the current FAISS candidate cluster being served.
+  const consecutiveSkipsRef = useRef<number>(0);
+  /** Minimum consecutive skips before triggering a forced queue refresh. */
+  const SKIP_DRIFT_THRESHOLD = 3;
+
+  // --- YouTube ID cache + prefetch ---
+  // ytIdCacheRef stores already-resolved IDs keyed by song ID to avoid
+  // repeated network lookups when advancing through the queue.
+  const ytIdCacheRef = useRef<Map<string, string>>(new Map());
+  /** Number of tracks ahead to pre-resolve. */
+  const PREFETCH_LOOKAHEAD = 2;
+  /** Debounce timer for prefetch to avoid redundant fetches on rapid state changes. */
+  const prefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Resolved YouTube video ID (may be fetched asynchronously for seed songs)
   const [resolvedYouTubeId, setResolvedYouTubeId] = useState<string | null>(null);
 
@@ -58,19 +79,56 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const resolveYouTubeId = async (track: Song): Promise<string | null> => {
     const rec = track as RecommendedSong;
 
-    // 1. Already resolved by the backend
-    if (rec.youtube_id) return rec.youtube_id;
+    // 1. Already in our local cache (pre-resolved in background)
+    const cached = ytIdCacheRef.current.get(track.id);
+    if (cached) return cached;
 
-    // 2. Search via the backend proxy (key never leaves the server)
+    // 2. Already resolved by the backend
+    if (rec.youtube_id) {
+      ytIdCacheRef.current.set(track.id, rec.youtube_id);
+      return rec.youtube_id;
+    }
+
+    // 3. Search via the backend proxy (key never leaves the server)
     try {
       const results = await api.searchYouTube(`${track.title} ${track.artist}`, 1);
       if (results.items.length > 0) {
-        return results.items[0].external_id;
+        const id = results.items[0].external_id;
+        ytIdCacheRef.current.set(track.id, id);
+        return id;
       }
     } catch (e) {
       console.warn("[PlayerContext] YouTube ID resolution failed:", e);
     }
     return null;
+  };
+
+  /**
+   * Background-resolve YouTube IDs for the next PREFETCH_LOOKAHEAD songs in
+   * the queue so that nextTrack() can read from cache instead of the network.
+   * Debounced to avoid redundant calls on rapid queue/index state changes.
+   */
+  const prefetchUpcoming = (currentQueue: Song[], currentIndex: number) => {
+    if (prefetchDebounceRef.current) clearTimeout(prefetchDebounceRef.current);
+    prefetchDebounceRef.current = setTimeout(() => {
+      for (let offset = 1; offset <= PREFETCH_LOOKAHEAD; offset++) {
+        const nextIdx = (currentIndex + offset) % currentQueue.length;
+        const song = currentQueue[nextIdx];
+        if (!song) continue;
+        // Skip if already cached or no resolution needed
+        const rec = song as RecommendedSong;
+        if (ytIdCacheRef.current.has(song.id) || rec.youtube_id) {
+          if (rec.youtube_id && !ytIdCacheRef.current.has(song.id)) {
+            ytIdCacheRef.current.set(song.id, rec.youtube_id);
+          }
+          continue;
+        }
+        // Fire-and-forget: pre-resolve and cache
+        resolveYouTubeId(song).then((id) => {
+          if (id) ytIdCacheRef.current.set(song.id, id);
+        });
+      }
+    }, 300); // 300 ms debounce
   };
 
   // Flush listen-duration interaction when switching tracks
@@ -99,6 +157,9 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     setResolvedYouTubeId(null); // clear until resolved
 
     if (playlist) {
+      // Register all playlist song IDs as "seen" for dedup
+      playlist.forEach((s) => seenIdsRef.current.add(s.id));
+
       setOriginalQueue(playlist);
       let newQueue = playlist;
       let newIndex = playlist.findIndex(t => t.id === track.id);
@@ -117,6 +178,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       setQueue(newQueue);
       setQueueIndex(newIndex);
     } else {
+      seenIdsRef.current.add(track.id);
       setOriginalQueue([track]);
       setQueue([track]);
       setQueueIndex(0);
@@ -134,9 +196,18 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       console.warn("[PlayerContext] Failed to log play interaction:", e)
     );
 
-    // Resolve YouTube ID asynchronously
+    // Resolve YouTube ID asynchronously (reads from cache first)
     const ytId = await resolveYouTubeId(track);
     setResolvedYouTubeId(ytId);
+
+    // Auto-append recommendations after seeding the queue from a section.
+    // Short delay lets the state settle before the fetch reads the queue.
+    setTimeout(() => fetchMoreForQueue(), 500);
+
+    // Pre-resolve IDs for the upcoming tracks while current track starts.
+    const finalQueue = playlist ?? [track];
+    const finalIndex = playlist ? (playlist.findIndex(t => t.id === track.id) >= 0 ? playlist.findIndex(t => t.id === track.id) : 0) : 0;
+    prefetchUpcoming(finalQueue, finalIndex);
   };
 
   const togglePlayPause = () => {
@@ -175,9 +246,29 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         api.interactWithSong(currentTrack.id, "skip").catch((e) =>
           console.warn("[PlayerContext] Failed to log skip interaction:", e)
         );
+
+        // A3: increment consecutive skip streak; trigger drift re-ranking at threshold
+        consecutiveSkipsRef.current += 1;
+        if (consecutiveSkipsRef.current >= SKIP_DRIFT_THRESHOLD) {
+          console.info(
+            `[PlayerContext] Skip drift detected (${consecutiveSkipsRef.current} consecutive skips). ` +
+              "Triggering forced queue refresh."
+          );
+          window.dispatchEvent(
+            new CustomEvent("moodbeats:skip-drift", {
+              detail: { skips: consecutiveSkipsRef.current },
+            })
+          );
+          // Force an immediate queue refill outside the normal low-watermark check
+          setTimeout(() => fetchMoreForQueue(true), 0);
+          consecutiveSkipsRef.current = 0; // reset after acting
+        }
+      } else {
+        // Auto-advance (song ended naturally) is NOT a skip — reset the streak
+        consecutiveSkipsRef.current = 0;
       }
     }
-    
+
     if (autoAdvance && loopMode === 'one') {
       setProgress(0);
       setIsPlaying(true);
@@ -185,7 +276,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       listenStartRef.current = Date.now();
       return;
     }
-    
+
     if (queue.length > 0) {
       if (autoAdvance && loopMode === 'off' && queueIndex === queue.length - 1) {
         setIsPlaying(false);
@@ -202,7 +293,12 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       lastTrackedTrackRef.current = nextSong.id;
       listenStartRef.current = Date.now();
       api.interactWithSong(nextSong.id, "play").catch(() => {});
-      resolveYouTubeId(nextSong).then(id => setResolvedYouTubeId(id));
+      // Cache hit = instant; cache miss = network (same as before)
+      resolveYouTubeId(nextSong).then(id => {
+        setResolvedYouTubeId(id);
+        // Pre-resolve for the track AFTER next
+        prefetchUpcoming(queue, nextIdx);
+      });
     }
     setProgress(0);
     setIsPlaying(true);
@@ -243,6 +339,8 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     if (currentTrack) {
       flushListenInteraction(currentTrack.id);
     }
+    // Going back is deliberate navigation, not drift — reset the skip streak
+    consecutiveSkipsRef.current = 0;
     if (progress > 3) {
       setProgress(0);
       setIsPlaying(true);
@@ -257,7 +355,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       lastTrackedTrackRef.current = prevSong.id;
       listenStartRef.current = Date.now();
       api.interactWithSong(prevSong.id, "play").catch(() => {});
-      resolveYouTubeId(prevSong).then(id => setResolvedYouTubeId(id));
+      resolveYouTubeId(prevSong).then(id => {
+        setResolvedYouTubeId(id);
+        prefetchUpcoming(queue, prevIdx);
+      });
       setProgress(0);
       setIsPlaying(true);
     } else {
@@ -268,27 +369,39 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     listenStartRef.current = Date.now();
   };
 
+  // --- Derive effective mood for recommendations ---
+  // Use detectedMood if set, otherwise fall back to current track's mood_tag.
+  // This ensures queue refill works even without face detection.
+  const getEffectiveMood = (): string | null => {
+    if (detectedMood) return detectedMood;
+    if (currentTrack?.mood_tag) return currentTrack.mood_tag;
+    return null;
+  };
+
   // --- Proactive queue-ahead (low-watermark refill) ---
-  // When ≤3 songs remain before the end of the queue and we know the current
-  // mood, silently fetch 10 more songs and append them.  This gives an
-  // "infinite queue" feel without any visible interaction.
-  const fetchMoreForQueue = async () => {
-    if (!detectedMood || isLoadingMoreRef.current) return;
+  // When ≤5 songs remain before the end of the queue and we know the
+  // effective mood, silently fetch 10 more songs and append them.
+  // Uses seenIdsRef for session-wide dedup across all fetches.
+  // A3: pass force=true to bypass the watermark check on skip-drift.
+  const fetchMoreForQueue = async (force = false) => {
+    const mood = getEffectiveMood();
+    if (!mood || isLoadingMoreRef.current) return;
     if (queue.length === 0) return;
 
     const remaining = queue.length - queueIndex - 1;
-    if (remaining > 3) return; // still enough songs ahead
+    if (!force && remaining > 5) return; // still enough songs ahead
 
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
 
     try {
-      const excludeIds = queue.map((s) => s.id);
-      const data = await api.getQueueAheadRecommendations(detectedMood, excludeIds, 10);
+      const excludeIds = Array.from(seenIdsRef.current);
+      const data = await api.getQueueAheadRecommendations(mood, excludeIds, 10);
       const newSongs: Song[] = (data?.songs ?? []).filter(
-        (s: Song) => !excludeIds.includes(s.id)
+        (s: Song) => !seenIdsRef.current.has(s.id)
       );
       if (newSongs.length > 0) {
+        newSongs.forEach((s) => seenIdsRef.current.add(s.id));
         setQueue((prev) => [...prev, ...newSongs]);
         setOriginalQueue((prev) => [...prev, ...newSongs]);
       }
@@ -300,15 +413,43 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  /** Public method for the queue panel to request more songs on scroll. */
+  const requestMoreQueue = async () => {
+    const mood = getEffectiveMood();
+    if (!mood || isLoadingMoreRef.current) return;
+
+    isLoadingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    try {
+      const excludeIds = Array.from(seenIdsRef.current);
+      const data = await api.getQueueAheadRecommendations(mood, excludeIds, 10);
+      const newSongs: Song[] = (data?.songs ?? []).filter(
+        (s: Song) => !seenIdsRef.current.has(s.id)
+      );
+      if (newSongs.length > 0) {
+        newSongs.forEach((s) => seenIdsRef.current.add(s.id));
+        setQueue((prev) => [...prev, ...newSongs]);
+        setOriginalQueue((prev) => [...prev, ...newSongs]);
+      }
+    } catch (e) {
+      console.warn('[PlayerContext] requestMoreQueue failed:', e);
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
+  };
+
   // Trigger on every queue/index change
   useEffect(() => {
-    if (!detectedMood || queue.length === 0) return;
+    const mood = getEffectiveMood();
+    if (!mood || queue.length === 0) return;
     const remaining = queue.length - queueIndex - 1;
-    if (remaining <= 3 && !isLoadingMoreRef.current) {
+    if (remaining <= 5 && !isLoadingMoreRef.current) {
       fetchMoreForQueue();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.length, queueIndex, detectedMood]);
+  }, [queue.length, queueIndex, detectedMood, currentTrack?.mood_tag]);
 
   const jumpToTrack = (index: number) => {
     if (index >= 0 && index < queue.length) {
@@ -324,7 +465,10 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
       lastTrackedTrackRef.current = track.id;
       listenStartRef.current = Date.now();
       api.interactWithSong(track.id, "play").catch(() => {});
-      resolveYouTubeId(track).then(id => setResolvedYouTubeId(id));
+      resolveYouTubeId(track).then(id => {
+        setResolvedYouTubeId(id);
+        prefetchUpcoming(queue, index);
+      });
       setProgress(0);
       setIsPlaying(true);
     }
@@ -340,6 +484,27 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- "Add to queue" from the queue panel (Player.tsx) ---
+  // Player.tsx dispatches `moodbeats:add-to-queue` when the user taps the +
+  // button on a suggested song.  We append it to both the live queue and the
+  // originalQueue (deduplicated) so it survives shuffle toggles.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const song = (e as CustomEvent).detail?.song;
+      if (!song) return;
+      setQueue((prev) => {
+        if (prev.some((s) => s.id === song.id)) return prev; // dedupe
+        return [...prev, song];
+      });
+      setOriginalQueue((prev) => {
+        if (prev.some((s) => s.id === song.id)) return prev;
+        return [...prev, song];
+      });
+    };
+    window.addEventListener("moodbeats:add-to-queue", handler);
+    return () => window.removeEventListener("moodbeats:add-to-queue", handler);
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{
@@ -353,6 +518,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         isShuffle,
         loopMode,
         isLoadingMore,
+        requestMoreQueue,
         playTrack,
         togglePlayPause,
         seek,

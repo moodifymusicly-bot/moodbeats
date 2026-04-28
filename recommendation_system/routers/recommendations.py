@@ -220,6 +220,14 @@ async def recommend_queue_ahead(
             "Returned songs will not include any of these IDs."
         ),
     ),
+    skip_penalty_ids: str = Query(
+        "",
+        description=(
+            "A3: Comma-separated list of recently-skipped song IDs. "
+            "Songs that share feature-space proximity with these will be down-ranked "
+            "in this response (in-session skip cluster penalty)."
+        ),
+    ),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
@@ -230,6 +238,10 @@ async def recommend_queue_ahead(
     the bottom of the MoodPlaylist.  The ``exclude_ids`` parameter prevents
     returning songs that are already in the queue.
 
+    ``skip_penalty_ids`` (A3): when the user has skipped 3+ songs in a row,
+    the frontend passes those IDs here so the backend can penalise songs
+    similar to the rejected cluster, steering the session toward fresh territory.
+
     Works for both anonymous and signed-in users.
     """
     if mood not in settings.MOODS:
@@ -237,16 +249,20 @@ async def recommend_queue_ahead(
 
     import uuid as _uuid
 
-    exclude_uuid_list: list[_uuid.UUID] = []
-    if exclude_ids.strip():
-        for raw_id in exclude_ids.split(","):
-            raw_id = raw_id.strip()
-            if not raw_id:
+    def _parse_uuid_list(raw: str) -> list[_uuid.UUID]:
+        result: list[_uuid.UUID] = []
+        for part in raw.split(","):
+            part = part.strip()
+            if not part:
                 continue
             try:
-                exclude_uuid_list.append(_uuid.UUID(raw_id))
+                result.append(_uuid.UUID(part))
             except ValueError:
                 pass  # silently skip malformed IDs
+        return result
+
+    exclude_uuid_list = _parse_uuid_list(exclude_ids) if exclude_ids.strip() else []
+    skip_penalty_uuid_list = _parse_uuid_list(skip_penalty_ids) if skip_penalty_ids.strip() else []
 
     user_id = current_user.id if current_user else None
     results, cached = await get_recommendations(
@@ -255,5 +271,6 @@ async def recommend_queue_ahead(
         user_id,
         limit,
         exclude_ids=exclude_uuid_list or None,
+        skip_penalty_ids=skip_penalty_uuid_list or None,
     )
     return _results_to_response(mood, results, cached)

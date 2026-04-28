@@ -75,8 +75,8 @@ class RecoSettings(BaseSettings):
     FAISS_INDEX_PATH: str = "/var/moodbeats/faiss/songs"
     FAISS_MIN_CATALOG_SIZE: int = 50   # below this use O(N) brute-force
 
-    # --- v2 scoring ---
-    ENABLE_V2_SCORING: bool = False
+    # --- v2 scoring (A4: enabled by default — songs without arousal fall back to v1) ---
+    ENABLE_V2_SCORING: bool = True
 
     # --- Song ingestion worker ---
     YOUTUBE_QUOTA_DAILY_LIMIT: int = 10_000

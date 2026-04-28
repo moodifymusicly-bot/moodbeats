@@ -155,12 +155,17 @@ export class ApiClient {
         mood: string,
         excludeIds: string[],
         limit: number = 10,
+        skipPenaltyIds: string[] = [],
     ) {
         const q = new URLSearchParams({
             mood: mood,
             limit: String(limit),
             exclude_ids: excludeIds.join(','),
         });
+        // A3: pass recently-skipped IDs so the backend can penalise that feature cluster
+        if (skipPenaltyIds.length > 0) {
+            q.set('skip_penalty_ids', skipPenaltyIds.join(','));
+        }
         return this.request<any>(`/api/recommendations/queue-ahead?${q.toString()}`);
     }
 

@@ -895,3 +895,104 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 
 ### Next Action
 - Open new chat to continue A2 (listen duration weighting) through A5 (time-of-day taste vectors).
+
+---
+## 2026-04-28T21:35 — A2, A3, A4: Duration Weighting, Skip Re-ranking, v2 Scoring
+
+### A2 — Listen Duration Weighting (user_preference.py)
+- Added `_DURATION_DEEP_ENGAGEMENT_SECONDS = 180.0` constant (>180s tier)
+- `_duration_gate()` now returns 4 tiers: `{0.20, 0.60, 1.00, 1.30}`
+  - `< 15s` → 0.20 (near-noise)
+  - `15–59s` → 0.60 (partial)
+  - `60–179s` → 1.00 (full listen)
+  - `> 180s` → 1.30 (deep engagement / replays)
+- `build_preference_profile()` already wired `_duration_gate(inter.listen_duration)` as a gate on the play weight (was already partial from a previous session — completed the 4th tier)
+- Docstring updated to reflect all 4 tiers
+
+### A3 — Session-level Skip Re-ranking (3 files)
+**frontend/src/lib/PlayerContext.tsx**
+- Removed duplicate `consecutiveSkipsRef` declaration (was injected twice)
+- Added `skippedIdsRef` — tracks the last 3 skipped song IDs
+- In `nextTrack()` manual-skip path:
+  - Appends skipped song ID to `skippedIdsRef` (rolling last-3 window)
+  - When `consecutiveSkipsRef >= SKIP_DRIFT_THRESHOLD (3)`:
+    - Fires a hard queue tail-replace (not just append) via `getQueueAheadRecommendations(mood, excludeIds, 10, penaltyIds)`
+    - Replaces `queue[nextIdx+1:]` with the fresh batch
+    - `consecutiveSkipsRef` reset immediately to prevent re-trigger
+
+**frontend/src/lib/api.ts**
+- `getQueueAheadRecommendations()` gains optional 4th param `skipPenaltyIds: string[] = []`
+- Serialized as `skip_penalty_ids=id1,id2,...` query param when non-empty
+
+**recommendation_system/routers/recommendations.py**
+- `/queue-ahead` endpoint gains `skip_penalty_ids: str = Query("")`
+- Parses UUIDs with same helper as `exclude_ids`
+- Passes `skip_penalty_ids=skip_penalty_uuid_list` to `get_recommendations()`
+
+**recommendation_system/services/recommendation_service.py**
+- `get_recommendations()` signature: `skip_penalty_ids: list[uuid.UUID] | None = None`
+- Before scoring loop: loads skipped songs from DB, builds 6-D feature centroid, L2-normalises
+- Constants: `A3_SKIP_CLUSTER_RADIUS=0.15`, `A3_SKIP_CLUSTER_PENALTY=0.80` (20% down)
+- In loop: if cos(song, centroid) > (1 - 0.15) → apply 0.80 multiplier + DEBUG log
+
+### A4 — Enable v2 Scoring by Default (config.py)
+- `ENABLE_V2_SCORING` default changed from `False` → `True`
+- `.env` already had `ENABLE_V2_SCORING=true` — this aligns code default with production intent
+- Songs without `arousal` still fall back to v1 via `_compute_mood_score_dispatch()`
+
+### Verification
+- `python3 -m pytest recommendation_system/tests/ -q` → **144 passed, 1 skipped, 0 failed** (33.81s)
+- `npx tsc --noEmit` → **0 errors**
+- `python3 -c "ast.parse(...)"` → all 4 backend files syntax OK
+
+### What Changed
+- `recommendation_system/services/user_preference.py` — 4th duration tier (>180s → 1.30 gate)
+- `recommendation_system/services/recommendation_service.py` — A3 skip cluster penalty in scoring loop
+- `recommendation_system/routers/recommendations.py` — `skip_penalty_ids` query param
+- `recommendation_system/config.py` — `ENABLE_V2_SCORING` default `True`
+- `frontend/src/lib/api.ts` — `skipPenaltyIds` param on `getQueueAheadRecommendations`
+- `frontend/src/lib/PlayerContext.tsx` — skip tracking cleanup + hard queue tail replace
+
+### Next Action
+- Continue with A5: time-of-day taste vector weighting in user_preference.py
+
+---
+## 2026-04-28T21:32 — A2, A3, A4: Duration Weighting, Skip Drift, v2 Scoring
+
+**Task**: Close three high-priority audit gaps (A2, A3, A4).
+
+### A2 — Listen Duration Weighting in Taste Vector (`user_preference.py`)
+**Problem**: `listen_duration` was stored and `_play_completion()` used it as a completion ratio, but short buffer-artifacts (3–10 s) contributed the same proportional weight as genuine listens.
+**Fix**:
+- Added `_duration_gate(listen_duration)` — a multiplier applied on top of the completion-ratio weight:
+  - `>= 60 s` → gate = 1.0 (full signal — user meaningfully engaged)
+  - `15–59 s` → gate = 0.6 (moderate signal)
+  - `< 15 s`  → gate = 0.25 (near-noise — buffer artifact / accidental play)
+- Weight formula for `play` is now: `1.0 * decay * (0.25 + 0.75 * completion) * gate`
+- Constants are named module-level floats for easy tuning.
+
+### A3 — Session-Level Skip Re-ranking (`PlayerContext.tsx`)
+**Problem**: 3+ consecutive skips continued serving from the same FAISS candidate set with no escape mechanism.
+**Fix**:
+- Added `consecutiveSkipsRef` (int ref, default 0) and `SKIP_DRIFT_THRESHOLD = 3`.
+- On every manual skip: increment ref; if threshold reached → dispatch `moodbeats:skip-drift` event, call `fetchMoreForQueue(true)` (force=true bypasses the 5-song watermark), reset counter.
+- Auto-advance (song ended naturally) resets the counter to 0.
+- `prevTrack()` also resets the counter (deliberate navigation ≠ drift).
+- `fetchMoreForQueue()` gained an optional `force` parameter.
+
+### A4 — v2 Scoring Enabled by Default (`config.py`)
+**Problem**: `ENABLE_V2_SCORING: bool = False` meant circumplex model + emotion classification were never used even though songs had `mood_scores`/`arousal` populated.
+**Fix**: Changed default to `True`. Songs without `arousal`/`mood_scores` still fall back to v1 via `_compute_mood_score_dispatch()` — no regression risk.
+
+### Validation
+- `python3 -m py_compile` → OK for `user_preference.py`, `config.py`
+- `npx tsc --noEmit` → 0 errors (PlayerContext.tsx)
+
+### Files Changed
+- `recommendation_system/services/user_preference.py` — A2: `_duration_gate()`, updated `play` weight formula
+- `recommendation_system/config.py` — A4: `ENABLE_V2_SCORING` default True
+- `frontend/src/lib/PlayerContext.tsx` — A3: consecutive skip tracker, forced queue refresh on drift
+
+### Next Action
+- Deploy: `bash scripts/vps-sync-deploy.sh`
+- Monitor: look for `[PlayerContext] Skip drift detected` in browser console after 3+ skips
