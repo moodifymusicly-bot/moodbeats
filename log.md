@@ -678,3 +678,220 @@ was the canonical failure mode.
 - `exclude_ids` in `/queue-ahead` prevents any duplicate from showing in queue on refill.
 
 **Next action**: Commit milestone.
+
+---
+## 2026-04-27T15:08 — VPS deploy script updated for recommendation service
+
+**Task**: Step through the deploy script audit and update for full dual-service deployment.
+
+**What changed**:
+- `scripts/vps-sync-deploy.sh` — full rewrite of the remote-action block:
+  - Confirmed `recommendation_system/` is included in rsync (it was, no change needed)
+  - Added: auto-inject `RECO_SERVICE_URL=http://recommendation-service:8002` into `.env` if missing
+  - Added: wait loop for `moodbeats-recommendation` container health (90s timeout)
+  - Added: env key audit against `.env.example` template (PASS/WARN/MISSING per key)
+  - Added: recommendation service health check `GET /api/health` on port 8002
+  - Added: inter-service connectivity check `GET /api/moods` and `/api/recommendations/moods`
+  - Added: Clerk key presence check (CLERK_SECRET_KEY, CLERK_ISSUER, CLERK_JWKS_URL)
+  - Added: auth middleware smoke-test (protected route should return 401 without token)
+  - Added: coloured PASS/FAIL summary table with overall status line
+  - Added: deployment summary block with all services, ports, container names
+- `.env.example` — added missing keys: `ENABLE_V2_SCORING`, `FAISS_ENABLED`, `FAISS_MIN_CATALOG_SIZE`
+
+**Findings**:
+- Local `.env` is missing: `RECO_SERVICE_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+  (the script injects RECO_SERVICE_URL automatically; frontend keys should be set manually)
+- docker-compose.yml already has the `recommendation-service` service correctly defined (port 8002)
+- rsync already syncs recommendation_system/ (no exclusion for it)
+
+**Next action**: Run the deploy command to verify live. Check that RECO_SERVICE_URL resolves inside Docker network.
+
+---
+## 2026-04-27 15:34 — Fix: backend container startup failure (ModuleNotFoundError)
+
+**Task**: Backend container was crashing at boot, causing the entire compose stack to fail.
+
+**Root cause**: `backend/app/routers/moods.py` and `backend/app/routers/songs.py` imported directly from `recommendation_system.*`. The backend Dockerfile uses `./backend` as its build context, so `recommendation_system/` (in the project root) was never copied into the image.
+
+The same was true in `backend/app/main.py` which imported `recommendation_system.routers.recommendations` and also contained a `sys.path` hack that tried to inject the project root at runtime (which doesn't exist in the container).
+
+**Fix applied**:
+1. `backend/app/routers/moods.py`: Inlined `MoodSelectRequest`, `MoodHistoryResponse` (simple Pydantic models) and `_record_mood`, `_get_mood_history` (tiny DB helpers). Fixed import path: `MoodHistory` is in `app.models.interaction`, not `app.models.mood_history`.
+2. `backend/app/routers/songs.py`: Inlined `infer_features_from_mood_tag`, `needs_feature_enrichment` (pure data functions) and `_invalidate_user_activity_caches` (3 cache.delete calls).
+3. `backend/app/main.py`: Removed the `sys.path` hack, the `from recommendation_system.routers import recommendations` import, and the `app.include_router(recommendations.router)` call. The recommendations router lives in the standalone recommendation-service container (port 8002) — the backend doesn't mount it.
+
+**Result**: All containers healthy. Stack deployed successfully to https://148.135.138.197.nip.io/
+
+**Next action**: None — deployment stable.
+
+---
+## 2026-04-27 15:52 — Full audit and gap closure
+
+**Audit findings after previous backend fix:**
+1. Frontend container was UNHEALTHY — healthcheck used `wget` but nginx:alpine only has `curl`
+2. `/api/recommendations/*` returned 404 via public HTTPS — Caddy routed all `/api/*` to backend (8001) but backend no longer mounts the recommendations router (it lives in recommendation-service on 8002)
+3. Deploy script `vps-sync-deploy.sh` was testing `/api/recommendations/moods` on backend port (stale check), and auth probe was also hitting backend port for a 404 route
+
+**Fixes applied:**
+1. `docker-compose.yml` — Changed frontend healthcheck from `wget` (not in nginx:alpine) to `curl -sf`
+2. `/etc/caddy/Caddyfile` on VPS — Added `handle /api/recommendations*` block routing to port 8002, patched live via `systemctl reload caddy`
+3. `scripts/vps-sync-deploy.sh` — Fixed inter-service check to use `/api/health` on reco port, fixed auth check to probe reco service port
+4. Frontend container recreated with new compose config
+
+**Final state (all verified):**
+- moodbeats-backend: ✅ healthy
+- moodbeats-recommendation: ✅ healthy
+- moodbeats-frontend: ✅ healthy (was unhealthy before)
+- moodbeats-db: ✅ healthy
+- moodbeats-redis: ✅ healthy
+- https://148.135.138.197.nip.io/ — ✅ serving frontend
+- https://148.135.138.197.nip.io/api/health — ✅ {"status":"healthy"}
+- https://148.135.138.197.nip.io/api/recommendations/discover — ✅ returns songs (anon)
+- https://148.135.138.197.nip.io/api/recommendations/for-you — ✅ 403 (auth working)
+
+**Next action**: None — initial goal fully achieved.
+
+## 2026-04-27T16:30 — Performance Optimization
+- **Task**: Address user request "how can i make this app load faster?"
+- **Status**: Planning
+- **Next**: Implement code splitting and asset lazy-loading.
+
+---
+## 2026-04-27T18:30 — Bug Fix: Empty Recommendation Queue / No New Songs
+
+**Task**: Users (especially new users) see no new song suggestions — queue is empty or stuck on seed songs.
+
+### Root Causes Identified (3 compounding issues)
+1. **Song ingestion worker never triggered**: `song_ingestion_worker.py` has both Celery and APScheduler paths, but neither Celery nor APScheduler is installed in the recommendation-service image. The `register_apscheduler_jobs()` function existed but was never called from `main.py`'s lifespan. Result: zero new songs ever fetched from YouTube beyond initial seed data.
+2. **scikit-learn installed but never used**: `scikit-learn==1.4.0` was in `requirements.txt` but never imported anywhere. It was intended for cold-start content-based KNN recommendations but was never wired into the scoring pipeline. Cold-start users always got the same static top-N from the seed catalog.
+3. **Stale empty results cached**: The primary pipeline scores a small catalog, caches the result, then `queue-ahead` excludes those IDs and re-scores an even smaller pool — returning near-empty responses. Critically, the empty/degraded responses were being cached with the full TTL, locking users into empty queues.
+
+### Fixes Applied
+
+**`recommendation_system/main.py`**:
+- Added `import asyncio`
+- Added import of `YouTubeClient` and `ingest_songs_for_mood` from the ingestion worker
+- Added `asyncio.create_task(_startup_ingest_all_moods(), name="startup_ingest_all_moods")` in the lifespan, guarded by `settings.YOUTUBE_API_KEY` check
+- Added `_startup_ingest_all_moods()` coroutine — fire-and-forget, iterates all moods, logs inserted/skipped/error per mood. Shared `YouTubeClient` instance respects daily quota counter. The 24h guard key in the ingestion worker prevents re-runs within one day.
+
+**`recommendation_system/services/recommendation_service.py`**:
+- Added lazy sklearn import with `_SKLEARN_AVAILABLE` flag (service still starts if sklearn is missing)
+- Added `_build_song_feature_matrix()` — builds (N, 5) float32 feature matrix for KNN input
+- Added `_cold_start_knn_fallback(db, mood, limit, exclude_ids)` — queries full catalog, fits cosine-distance NearestNeighbors, returns top-k songs closest to the mood profile. This is the sklearn library that was installed but never wired in.
+- Added `_seed_popularity_fallback(db, mood, limit, exclude_ids)` — absolute last resort, returns most popular songs ordered by `popularity DESC`. Guarantees the queue is never empty.
+- In `get_recommendations()`: after primary scoring, if `len(top) < limit`, calls KNN fallback to fill slots; if still empty, calls seed fallback. Cache write guarded by `len(top) >= limit` — degraded/empty results are no longer persisted.
+- Same fallback chain applied to `get_for_you_recommendations()`.
+
+### Verification
+- **144 passed, 1 skipped, 0 failed** (full recommendation_system test suite, 35s).
+- No regressions. All 144 previously-passing tests still pass.
+
+### Next Action
+- Deploy to VPS: `bash scripts/vps-sync-deploy.sh`
+- Verify via: `GET /api/recommendations?mood=Velvet&limit=20` → should return 20 songs
+- Monitor startup logs for `[StartupIngest]` entries confirming ingestion runs
+
+---
+## 2026-04-27T18:47 — Queue Panel: Live Recommendation Integration
+
+**Task**: Surface the recommendation engine inside the "Up Next" queue panel in the Player page.
+
+### Changes
+
+**`frontend/src/pages/Player.tsx`** (full rewrite):
+- Imports: added `Sparkles`, `Plus`, `Loader2` icons; `api` client; `Song` type.
+- Added `suggested: Song[]` state — populated when the queue panel opens.
+- Added `isFetchingSuggested` state for the loading indicator in the suggestions section.
+- Added `addedIds: Set<string>` state — tracks which suggested songs the user has tapped + on (UI feedback only; actual dedup is done in PlayerContext).
+- `fetchSuggested()` — `useCallback` that calls `api.getQueueAheadRecommendations(mood, excludeIds, 10)`, excluding songs already in the queue or already in `suggested`. Guard ref prevents parallel in-flight requests.
+- `useEffect` on `showQueue` — resets suggestions, then fires `fetchSuggested()` after 350 ms (lets the slide-in animation complete first).
+- `IntersectionObserver` on `sentinelRef` div at the bottom of the suggestions list — triggers `fetchSuggested()` when scrolled into view, giving infinite scroll for suggestions.
+- Queue panel header now shows song count and "Refilling…" text when `isLoadingMore` is true.
+- `ListMusic` button gets a pulsing primary dot when `isLoadingMore` is true (silent background refill indicator).
+- **"Recommended for you" section**: renders below the queue list with a `Sparkles` label, individual `+` (Plus) buttons that dispatch `moodbeats:add-to-queue` custom event, and ✓ checkmark once added/already in queue.
+
+**`frontend/src/lib/PlayerContext.tsx`**:
+- Added `useEffect` listening on `window` for `moodbeats:add-to-queue` events. Appends the song to both `queue` and `originalQueue` (deduplicated) — so the song immediately appears in "Up Next" and survives shuffle mode toggling.
+
+### Verification
+- `npx tsc --noEmit` → 0 errors.
+
+### Next Action
+- Deploy and smoke-test: open player → tap queue icon → verify "Recommended for you" section loads → tap + on a track → verify it appears at the bottom of "Up Next".
+
+---
+## 2026-04-27T19:10 — Wire Recommendations into Mini Queue (Unified Queue)
+
+**Task**: Replace the separate "Recommended for you" panel (requiring manual +) with a unified, auto-growing queue powered by the recommendation engine.
+
+### What was broken
+- Queue panel had two sections: "Up Next" (actual queue) and "Recommended for you" (separate list with manual add buttons). Users had to manually tap "+" on each song.
+- Queue only auto-refilled when `detectedMood` was set via face detection. Playing from Home sections without face detection left the queue static.
+- Home section seeding worked (passed playlist), but no recommendations appended after the section songs.
+- Dedup tracked only current queue, not session history — re-fetches could return previously seen songs.
+
+### Changes
+
+**`frontend/src/lib/PlayerContext.tsx`**:
+- Added `seenIdsRef: Set<string>` — session-wide dedup tracker. All song IDs ever added to the queue are registered here.
+- Added `getEffectiveMood()` — returns `detectedMood` if set, falls back to `currentTrack.mood_tag`. Allows queue refill even without face detection.
+- `fetchMoreForQueue()` — uses effective mood (not just `detectedMood`), raised watermark from 3→5, uses `seenIdsRef` for dedup (was using `queue.map(s => s.id)` which missed previously removed songs).
+- Added `requestMoreQueue()` — public method for Player.tsx queue panel's IntersectionObserver. Fetches 10 more songs regardless of watermark.
+- `playTrack()` — registers all playlist IDs in `seenIdsRef`, auto-schedules `fetchMoreForQueue()` after 500ms so recommendations append after section songs.
+- Exposed `requestMoreQueue` in context value.
+
+**`frontend/src/pages/Player.tsx`**:
+- Removed: `suggested` state, `isFetchingSuggested`, `addedIds`, `fetchingRef`, `fetchSuggested()` callback, reset-on-open effect, entire "Recommended for you" UI section with Sparkles/Plus/checkmark buttons.
+- Removed imports: `useCallback`, `Plus`, `Sparkles`, `api`, `Song`.
+- IntersectionObserver now calls `requestMoreQueue()` (was `fetchSuggested()`).
+- Queue panel is now a single unified list with loading indicator and sentinel at the bottom.
+
+### Key decisions
+| Decision | Rationale |
+|----------|-----------|
+| Remove separate suggestions panel | Songs should flow directly into queue — separate "+" buttons add friction |
+| Infer mood from `currentTrack.mood_tag` | Enables refill for plays from Home without face detection |
+| `seenIdsRef` (not queue.map) for dedup | Survives song removal, tracks full session history |
+| Watermark 3 → 5 | More buffer for slower networks |
+
+### Verification
+- `npx tsc --noEmit` → 0 errors.
+
+### Next Action
+- Deploy and verify: play from Home section → queue auto-extends with recommendations → scroll to bottom → more load → skip track → queue tops up.
+
+---
+## 2026-04-28T21:10 — A1: Feature Extraction Reliability Fix
+
+**Task**: Fix YouTube songs stuck at neutral 0.5 placeholder features after failed fire-and-forget extraction.
+
+### Root Cause
+`_enrich_songs_background()` was fire-and-forget with no retry. If yt-dlp failed (quota, rate-limit, geo-block), songs stayed at `feature_extraction_version='v1'` (valence=0.5, energy=0.5 etc.) forever. These songs received the same FAISS embedding and the same mood scores as each other, diluting recommendation quality.
+
+### Fix — Two-Part
+
+**Part 1: Retry Sweep** (`recommendation_system/services/song_ingestion_worker.py`)
+- Added `retry_stale_features(db, max_batch=20)` async coroutine:
+  - Queries `WHERE external_source='youtube' AND feature_extraction_version='v1' ORDER BY created_at DESC LIMIT 20`
+  - Per-song Redis key `mb:feat:retry:{video_id}` tracks attempt count (max 3 attempts, 7-day TTL)
+  - Counter incremented BEFORE extraction attempt (crash-safe)
+  - 10s sleep between songs to avoid yt-dlp rate-limiting
+  - Returns `{attempted, succeeded, exhausted, failed}` summary
+- Registered in `register_apscheduler_jobs()` as `IntervalTrigger(hours=6)` job `"retry_stale_features"`
+
+**Part 2: Quality Penalty** (`recommendation_system/services/recommendation_service.py`)
+- In the scoring loop, after mood-tag multiplier/penalty, added: `if feat_ver == 'v1': final_score *= 0.85`
+- Placeholder songs score 15% lower, surfacing below real-feature songs in the same mood batch
+- Logged at DEBUG level per song for traceability
+- Songs graduate automatically to 'v2' once extraction succeeds
+
+### Verification
+- `python -m py_compile` → both files OK
+- Full test suite: **144 passed, 1 skipped, 0 failed** (35s)
+
+### What Changed
+- `recommendation_system/services/song_ingestion_worker.py` — `retry_stale_features()` function + APScheduler job
+- `recommendation_system/services/recommendation_service.py` — 15% quality penalty in scoring loop
+
+### Next Action
+- Open new chat to continue A2 (listen duration weighting) through A5 (time-of-day taste vectors).

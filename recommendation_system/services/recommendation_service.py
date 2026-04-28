@@ -44,6 +44,22 @@ from recommendation_system.services.user_emotion_profile import (
     get_for_you_emotion_boost,
 )
 
+# ---------------------------------------------------------------------------
+# scikit-learn: lazy import so the service still starts if sklearn is missing
+# (though it IS in requirements.txt and should always be present).
+# Used exclusively for the cold-start content-based nearest-neighbour fallback.
+# ---------------------------------------------------------------------------
+try:
+    from sklearn.neighbors import NearestNeighbors as _SKLearnNN  # noqa: E402
+    _SKLEARN_AVAILABLE = True
+except ImportError:
+    _SKLearnNN = None  # type: ignore[assignment,misc]
+    _SKLEARN_AVAILABLE = False
+    logger.warning(
+        "scikit-learn not available — cold-start KNN fallback disabled. "
+        "Install scikit-learn to enable content-based recommendations for new users."
+    )
+
 settings = get_settings()
 
 # ---------------------------------------------------------------------------
@@ -572,6 +588,18 @@ async def get_recommendations(
             # happen to be close to the requested mood profile.
             final_score = max(0.0, final_score - MOOD_TAG_MISMATCH_PENALTY)
 
+        # A1: Placeholder quality penalty — songs that still carry 0.5 default
+        # audio features (feature_extraction_version='v1') have unreliable mood
+        # scores. Apply a 15% penalty so real-feature songs surface above them.
+        # Songs are graduated to 'v2' by the retry sweep or initial extraction.
+        feat_ver = getattr(song, "feature_extraction_version", None)
+        if feat_ver == "v1":
+            final_score *= 0.85
+            logger.debug(
+                "[RecoService] Placeholder penalty applied to song_id=%s (v1 features).",
+                song.id,
+            )
+
         final_score = float(max(0.0, final_score))
         sv = "v2" if (ENABLE_V2_SCORING and song.arousal is not None) else "v1"
 
@@ -588,7 +616,28 @@ async def get_recommendations(
     scored_songs.sort(key=lambda x: x["score"], reverse=True)
     top = scored_songs[:limit]
 
-    if not exclude_ids:
+    # -----------------------------------------------------------------------
+    # Cold-start / thin-catalog fallback: if the primary pipeline returned
+    # fewer songs than requested (e.g. catalog is tiny or FAISS returned very
+    # few candidates), fill the remaining slots using the sklearn KNN fallback
+    # so the queue is never shorter than expected.
+    # -----------------------------------------------------------------------
+    if len(top) < limit:
+        needed = limit - len(top)
+        already_returned_ids = {r["song"].id for r in top}
+        all_exclude = (exclude_ids or []) + list(already_returned_ids)
+        fallback = await _cold_start_knn_fallback(
+            db, mood, needed, set(all_exclude)
+        )
+        top.extend(fallback)
+
+    # Last resort: if still empty, return the most popular seed songs.
+    if not top:
+        top = await _seed_popularity_fallback(db, mood, limit, exclude_ids or [])
+
+    # Only cache a full-quality result — never cache a degraded (under-limit)
+    # response, which would lock users into an empty queue for the full TTL.
+    if not exclude_ids and len(top) >= limit:
         await cache.set_json(
             cache_key,
             _serialize_results(top),
@@ -706,7 +755,24 @@ async def get_for_you_recommendations(
     scored.sort(key=lambda x: x["score"], reverse=True)
     top = scored[:limit]
 
-    if not exclude_ids:
+    # -----------------------------------------------------------------------
+    # Cold-start / thin-catalog fallback: fill remaining slots with KNN hits.
+    # -----------------------------------------------------------------------
+    if len(top) < limit:
+        needed = limit - len(top)
+        already_returned_ids = {r["song"].id for r in top}
+        all_exclude = (exclude_ids or []) + list(already_returned_ids)
+        fallback = await _cold_start_knn_fallback(
+            db, recent_mood, needed, set(all_exclude)
+        )
+        top.extend(fallback)
+
+    # Last resort: most popular seed songs.
+    if not top:
+        top = await _seed_popularity_fallback(db, recent_mood, limit, exclude_ids or [])
+
+    # Only cache a full result — never persist a degraded/empty response.
+    if not exclude_ids and len(top) >= limit:
         await cache.set_json(
             cache_key,
             _serialize_results(top),
@@ -740,6 +806,167 @@ def _song_rows_from_songs(songs: list[Song]) -> list[dict]:
             "user_similarity": 0.5,
         }
         for s in songs
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Cold-start helpers
+# ---------------------------------------------------------------------------
+
+def _build_song_feature_matrix(songs: list[Song]) -> np.ndarray:
+    """Build an (N, 5) float32 matrix of audio features for sklearn KNN.
+
+    Feature layout mirrors MOOD_PROFILES:
+      [valence, energy, danceability, tempo_norm, acousticness]
+    """
+    rows = []
+    for s in songs:
+        tempo_norm = min(1.0, float(getattr(s, "tempo", 100.0)) / 200.0)
+        acousticness = float(getattr(s, "acousticness", 0.5))
+        rows.append([
+            float(s.valence),
+            float(s.energy),
+            float(getattr(s, "danceability", 0.5)),
+            tempo_norm,
+            acousticness,
+        ])
+    return np.array(rows, dtype=np.float32)
+
+
+async def _cold_start_knn_fallback(
+    db: AsyncSession,
+    mood: str | None,
+    limit: int,
+    exclude_ids: set[uuid.UUID],
+) -> list[dict]:
+    """Content-based nearest-neighbour fallback using scikit-learn.
+
+    Queries the full song catalog, fits a cosine-distance KNN index, and
+    returns the ``limit`` songs whose audio features are closest to the
+    target mood profile.  This is the "cold-start" library (sklearn) that
+    was installed in requirements.txt but was never wired into the pipeline.
+
+    Parameters
+    ----------
+    db:
+        Active async SQLAlchemy session.
+    mood:
+        Mood name; used to build the query feature vector from MOOD_PROFILES.
+        Falls back to neutral (all 0.5) when None or unknown.
+    limit:
+        Maximum number of songs to return.
+    exclude_ids:
+        Song IDs to omit (already in the caller's result set).
+
+    Returns
+    -------
+    list[dict] with the same structure as the main scoring pipeline (song,
+    score, mood_match, user_similarity, scoring_version).
+    """
+    if not _SKLEARN_AVAILABLE or limit <= 0:
+        return []
+
+    try:
+        result = await db.execute(select(Song))
+        all_songs = result.scalars().all()
+    except Exception as exc:
+        logger.warning("[KNNFallback] DB query failed: %s", exc)
+        return []
+
+    # Filter out songs already in the result set
+    candidates = [s for s in all_songs if s.id not in exclude_ids]
+    if not candidates:
+        return []
+
+    feature_matrix = _build_song_feature_matrix(candidates)
+
+    # Build the mood query vector (same 5-D layout as the feature matrix)
+    if mood and mood in MOOD_PROFILES:
+        p = MOOD_PROFILES[mood]
+        query_vec = np.array([
+            p["valence"], p["energy"], p["danceability"],
+            p["tempo_norm"], p["acousticness"],
+        ], dtype=np.float32).reshape(1, -1)
+    else:
+        query_vec = np.full((1, 5), 0.5, dtype=np.float32)
+
+    # Fit KNN; clamp k to available candidates
+    k = min(limit, len(candidates))
+    try:
+        nn = _SKLearnNN(n_neighbors=k, metric="cosine", algorithm="brute")
+        nn.fit(feature_matrix)
+        distances, indices = nn.kneighbors(query_vec)
+    except Exception as exc:
+        logger.warning("[KNNFallback] sklearn KNN failed: %s", exc)
+        return []
+
+    results: list[dict] = []
+    for dist, idx in zip(distances[0], indices[0]):
+        song = candidates[int(idx)]
+        mood_match = float(max(0.0, 1.0 - dist))  # cosine dist → similarity
+        results.append({
+            "song": song,
+            "score": round(mood_match, 4),
+            "mood_match": round(mood_match, 4),
+            "user_similarity": 0.5,  # neutral (no user profile)
+            "scoring_version": "knn_fallback",
+        })
+
+    logger.info(
+        "[KNNFallback] Returned %d songs for mood='%s' (sklearn cosine KNN).",
+        len(results), mood,
+    )
+    return results
+
+
+async def _seed_popularity_fallback(
+    db: AsyncSession,
+    mood: str | None,
+    limit: int,
+    exclude_ids: list[uuid.UUID],
+) -> list[dict]:
+    """Absolute last resort: return the most popular seed songs.
+
+    This guarantees the queue is never empty even when the catalog is empty
+    or every other code path fails.  Seed songs are always present (loaded
+    at backend startup from ``app.seed.seed_data``).
+    """
+    try:
+        from sqlalchemy import asc
+        query = (
+            select(Song)
+            .order_by(Song.popularity.desc())
+            .limit(limit * 3)  # over-fetch so we can exclude already-returned IDs
+        )
+        result = await db.execute(query)
+        songs = result.scalars().all()
+    except Exception as exc:
+        logger.warning("[SeedFallback] DB query failed: %s", exc)
+        return []
+
+    exclude_set = set(exclude_ids)
+    chosen = [s for s in songs if s.id not in exclude_set][:limit]
+
+    if not chosen:
+        logger.warning(
+            "[SeedFallback] No songs available even in seed fallback — "
+            "database may be empty."
+        )
+        return []
+
+    logger.info(
+        "[SeedFallback] Returning %d seed songs as last-resort fallback (mood='%s').",
+        len(chosen), mood,
+    )
+    return [
+        {
+            "song": s,
+            "score": round(float(s.popularity) / 100.0, 4),
+            "mood_match": 0.5,
+            "user_similarity": 0.5,
+            "scoring_version": "seed_fallback",
+        }
+        for s in chosen
     ]
 
 

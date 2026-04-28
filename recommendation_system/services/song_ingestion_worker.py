@@ -620,6 +620,128 @@ async def _run_ingestion_for_mood(
 
 
 # ---------------------------------------------------------------------------
+# Feature extraction retry sweep (A1 fix)
+# ---------------------------------------------------------------------------
+
+_FEAT_RETRY_KEY = "mb:feat:retry:{video_id}"  # tracks attempt count per video
+_FEAT_MAX_RETRIES = 3                          # give up after 3 total attempts
+_FEAT_RETRY_TTL = 7 * 86_400                  # expire retry counter after 7 days
+_FEAT_RETRY_DELAY_SECONDS = 10               # pause between songs (avoids yt-dlp rate-limit)
+
+
+async def retry_stale_features(
+    db: AsyncSession,
+    max_batch: int = 20,
+) -> dict[str, Any]:
+    """Retry feature extraction for songs that still have v1 placeholder values.
+
+    Songs land at ``feature_extraction_version='v1'`` when the initial
+    fire-and-forget extraction task fails (yt-dlp quota / geo-block / timeout).
+    This sweep picks them up in batches of *max_batch*, newest-first, and
+    attempts ``_write_song_features()`` up to ``_FEAT_MAX_RETRIES`` times per
+    song.  Attempt counts are persisted in Redis so progress survives restarts.
+
+    Returns a summary dict:
+        {
+          "attempted": int,
+          "succeeded": int,
+          "exhausted": int,   # hit max retries — skipped this run
+          "failed": int,      # extraction error on this attempt
+        }
+    """
+    # Query songs still at default placeholder (v1) sorted newest-first so
+    # recently-ingested songs get real features before they age out of freshness.
+    result = await db.execute(
+        select(Song)
+        .where(
+            Song.external_source == "youtube",
+            Song.feature_extraction_version == "v1",
+        )
+        .order_by(Song.created_at.desc())
+        .limit(max_batch)
+    )
+    stale_songs = result.scalars().all()
+
+    if not stale_songs:
+        logger.info("retry_stale_features: no v1-placeholder songs found — nothing to do.")
+        return {"attempted": 0, "succeeded": 0, "exhausted": 0, "failed": 0}
+
+    logger.info(
+        "retry_stale_features: found %d songs with placeholder features. Starting retry sweep.",
+        len(stale_songs),
+    )
+
+    attempted = succeeded = exhausted = failed = 0
+
+    for song in stale_songs:
+        video_id = song.external_id
+        retry_key = _FEAT_RETRY_KEY.format(video_id=video_id)
+
+        # --- Check retry budget ---
+        try:
+            retry_count_list = await cache.mget_int([retry_key])
+            retry_count = retry_count_list[0] if retry_count_list else 0
+        except Exception:
+            retry_count = 0
+
+        if retry_count >= _FEAT_MAX_RETRIES:
+            logger.info(
+                "retry_stale_features: video_id=%s hit max retries (%d) — skipping.",
+                video_id, _FEAT_MAX_RETRIES,
+            )
+            exhausted += 1
+            continue
+
+        attempted += 1
+
+        # --- Bump retry counter BEFORE attempting so a crash still counts ---
+        try:
+            client = await cache.client()
+            if client is not None:
+                async with client.pipeline(transaction=True) as pipe:
+                    pipe.incr(retry_key)
+                    pipe.expire(retry_key, _FEAT_RETRY_TTL)
+                    await pipe.execute()
+        except Exception as exc:
+            logger.warning("retry_stale_features: failed to bump retry counter for %s: %s", video_id, exc)
+
+        # --- Attempt extraction in an isolated session so one failure ---
+        # --- does not roll back the progress of previous songs.        ---
+        try:
+            success = await _write_song_features(db, video_id)
+            if success:
+                succeeded += 1
+                logger.info(
+                    "retry_stale_features: ✅ features written for video_id=%s (attempt %d/%d).",
+                    video_id, retry_count + 1, _FEAT_MAX_RETRIES,
+                )
+            else:
+                failed += 1
+                logger.warning(
+                    "retry_stale_features: ❌ extraction returned None for video_id=%s (attempt %d/%d).",
+                    video_id, retry_count + 1, _FEAT_MAX_RETRIES,
+                )
+        except Exception as exc:
+            failed += 1
+            logger.warning(
+                "retry_stale_features: ❌ exception for video_id=%s (attempt %d/%d): %s",
+                video_id, retry_count + 1, _FEAT_MAX_RETRIES, exc,
+            )
+
+        # Stagger attempts to avoid hammering yt-dlp concurrently.
+        await asyncio.sleep(_FEAT_RETRY_DELAY_SECONDS)
+
+    summary = {
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "exhausted": exhausted,
+        "failed": failed,
+    }
+    logger.info("retry_stale_features: sweep complete — %s", summary)
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # Celery task (optional — only registers if celery is importable)
 # ---------------------------------------------------------------------------
 
@@ -729,6 +851,26 @@ def register_apscheduler_jobs(scheduler: Any, db_session_factory: Any) -> None: 
             "song_ingestion_worker: registered APScheduler job for mood '%s' (stagger=%ds).",
             mood, stagger_seconds,
         )
+
+    # --- A1: Feature extraction retry sweep ---
+    # Runs every 6 hours. Picks up YouTube songs that still have 0.5 placeholder
+    # values (feature_extraction_version='v1') and re-attempts extraction with
+    # exponential back-off enforced by a per-song Redis retry counter.
+    async def _retry_sweep_job() -> None:
+        async with db_session_factory() as db:
+            await retry_stale_features(db, max_batch=20)
+            await db.commit()
+
+    scheduler.add_job(
+        _retry_sweep_job,
+        trigger=IntervalTrigger(hours=6),
+        id="retry_stale_features",
+        name="Retry stale feature extraction (placeholder v1 songs)",
+        replace_existing=True,
+        misfire_grace_time=1800,
+        next_run_time=None,
+    )
+    logger.info("song_ingestion_worker: registered APScheduler retry sweep (every 6 h).")
 
 
 # ---------------------------------------------------------------------------
