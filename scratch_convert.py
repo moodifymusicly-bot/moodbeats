@@ -1,7 +1,7 @@
 import re
 import json
 
-with open("/home/chintan/MoodBeats/stitch_preview_mobile.html", "r") as f:
+with open("/home/chintan/MoodBeatz/stitch_preview_mobile.html", "r") as f:
     html = f.read()
 
 # Extract colors from the tailwind config
@@ -84,7 +84,7 @@ export default function PreviewPage() {{
   return (
     <>
       <Head>
-        <title>MoodBeats | Sonic Noir</title>
+        <title>MoodBeatz | Sonic Noir</title>
         <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </Head>
@@ -99,6 +99,6 @@ export default function PreviewPage() {{
 """
 
 import os
-with open('/home/chintan/MoodBeats/frontend/src/app/preview/page.tsx', 'w') as f:
+with open('/home/chintan/MoodBeatz/frontend/src/app/preview/page.tsx', 'w') as f:
     f.write(jsx)
 print("Conversion complete!")

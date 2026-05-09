@@ -1,7 +1,7 @@
-# MoodBeats - AI-Powered Music Recommendation
+# MoodBeatz - AI-Powered Music Recommendation
 
 A mood-based music recommendation web app. Pick a mood (or grant the
-camera and let the face detector pick one for you), and MoodBeats ranks
+camera and let the face detector pick one for you), and MoodBeatz ranks
 the catalog with a hybrid score of mood fit + personal taste (from your
 implicit interactions) + popularity + freshness. Plays stream from
 YouTube.
@@ -9,7 +9,7 @@ YouTube.
 ## Architecture
 
 ```
-MoodBeats/
+MoodBeatz/
   backend/              FastAPI + SQLAlchemy async + Alembic + Redis
     app/
       main.py           App entry + lifespan (migrations, seed, Redis probe)

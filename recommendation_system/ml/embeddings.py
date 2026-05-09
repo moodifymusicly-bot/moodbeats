@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from app.ml.hybrid_model import HybridRecommender
+from recommendation_system.ml.hybrid_model import HybridRecommender
 
 
 def get_song_feature_vector(song) -> list[float]:

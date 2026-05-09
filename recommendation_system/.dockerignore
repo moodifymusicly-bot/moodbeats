@@ -1,0 +1,53 @@
+# ============================================================================
+# .dockerignore for recommendation_system/Dockerfile
+# Build context is the project root (.../MoodBeatz)
+# ============================================================================
+
+# Version control & IDE
+.git
+.gitignore
+.vscode
+.idea
+*.DS_Store
+desktop.ini
+
+# Frontend (not needed in backend image)
+frontend/
+UINew/
+UINew_backup/
+truebond/
+
+# Backend virtual environments & caches
+backend/.venv/
+backend/venv/
+backend/__pycache__/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/alembic/versions/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Test artifacts
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Logs and scratch files
+*.log
+backend_log.txt
+frontend_log.txt
+scratch_convert.py
+
+# Docs (not needed at runtime)
+docs/
+releases/
+scripts/
+
+# recommendation_system test artifacts (not needed in image)
+recommendation_system/tests/
+recommendation_system/__pycache__/
+recommendation_system/.pytest_cache/

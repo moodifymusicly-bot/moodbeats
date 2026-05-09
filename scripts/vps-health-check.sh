@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------
 # Run ON the VPS (as root or a user in the docker group), from the repo:
 #
-#   bash /opt/moodbeats/scripts/vps-health-check.sh
+#   bash /opt/moodbeatz/scripts/vps-health-check.sh
 #
 # Or from your laptop over SSH:
 #   ssh root@YOUR_VPS 'bash -s' < scripts/vps-health-check.sh
@@ -12,7 +12,7 @@
 
 set -u
 
-MOODBEATS_DIR="${MOODBEATS_DIR:-/opt/moodbeats}"
+MOODBEATZ_DIR="${MOODBEATZ_DIR:-/opt/moodbeatz}"
 PUBLIC_HOST="${PUBLIC_HOST:-148.135.138.197.nip.io}"
 
 failures=0
@@ -20,14 +20,14 @@ ok() { printf '\033[1;32mOK\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*" >&2; }
 bad() { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; failures=$((failures + 1)); }
 
-echo "=== MoodBeats VPS health (${MOODBEATS_DIR}) ==="
+echo "=== MoodBeatz VPS health (${MOODBEATZ_DIR}) ==="
 echo
 
-if [[ ! -d "${MOODBEATS_DIR}" ]]; then
-  bad "Directory missing: ${MOODBEATS_DIR}"
+if [[ ! -d "${MOODBEATZ_DIR}" ]]; then
+  bad "Directory missing: ${MOODBEATZ_DIR}"
   exit 1
 fi
-cd "${MOODBEATS_DIR}" || exit 1
+cd "${MOODBEATZ_DIR}" || exit 1
 
 if ! command -v docker &>/dev/null; then
   bad "docker not installed"
@@ -38,15 +38,15 @@ echo "--- docker compose ps ---"
 if docker compose ps 2>/dev/null; then
   :
 else
-  bad "docker compose ps failed (run from ${MOODBEATS_DIR} with compose file present?)"
+  bad "docker compose ps failed (run from ${MOODBEATZ_DIR} with compose file present?)"
 fi
 echo
 
-echo "--- container names (expect moodbeats-*) ---"
+echo "--- container names (expect moodbeatz-*) ---"
 docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | head -20
 echo
 
-for name in moodbeats-db moodbeats-redis moodbeats-backend moodbeats-frontend; do
+for name in moodbeatz-db moodbeatz-redis moodbeatz-backend moodbeatz-frontend; do
   if docker ps --format '{{.Names}}' | grep -qx "${name}"; then
     ok "running: ${name}"
   else
@@ -107,7 +107,7 @@ if [[ "${failures}" -eq 0 ]]; then
 fi
 
 echo "Summary: ${failures} check(s) failed."
-echo "Remediate: cd ${MOODBEATS_DIR} && docker compose logs -f backend"
+echo "Remediate: cd ${MOODBEATZ_DIR} && docker compose logs -f backend"
 echo "           docker compose up -d --build"
 echo "           systemctl restart caddy"
 exit 1

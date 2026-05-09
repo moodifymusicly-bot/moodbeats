@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MoodBeats VPS — One-Shot Setup
+# MoodBeatz VPS — One-Shot Setup
 # Run this DIRECTLY on the VPS as root:
 #
-#   curl -sL https://raw.githubusercontent.com/moodifymusicly-bot/moodbeats/main/scripts/vps-setup-oneshot.sh | bash
+#   curl -sL https://raw.githubusercontent.com/moodifymusicly-bot/moodbeatz/main/scripts/vps-setup-oneshot.sh | bash
 #   -- OR --
-#   bash /opt/moodbeats/scripts/vps-setup-oneshot.sh   (if already rsync'd)
+#   bash /opt/moodbeatz/scripts/vps-setup-oneshot.sh   (if already rsync'd)
 #
 # This script:
 #   1. Installs Docker, Docker Compose plugin, and Caddy
 #   2. Configures UFW firewall (ports 22, 80, 443)
-#   3. Clones the repo to /opt/moodbeats
-#   4. Sources .env (must already be at /opt/moodbeats/.env)
+#   3. Clones the repo to /opt/moodbeatz
+#   4. Sources .env (must already be at /opt/moodbeatz/.env)
 #   5. Builds + launches the full Docker Compose stack
 #   6. Configures Caddy as TLS reverse proxy to 148.135.138.197.nip.io
 # =============================================================================
@@ -19,8 +19,8 @@
 set -euo pipefail
 
 PUBLIC_HOST="148.135.138.197.nip.io"
-REPO_URL="https://github.com/moodifymusicly-bot/moodbeats.git"
-DEST="/opt/moodbeats"
+REPO_URL="https://github.com/moodifymusicly-bot/moodbeatz.git"
+DEST="/opt/moodbeatz"
 API_BASE="https://${PUBLIC_HOST}"
 
 log() { echo -e "\n\033[1;36m==>\033[0m $*"; }
@@ -70,7 +70,7 @@ fi
 
 # --- .env Check -------------------------------------------------------------
 if [[ ! -f "${DEST}/.env" ]]; then
-  err ".env not found at ${DEST}/.env\n\nSCP it from your local machine first:\n  scp /home/chintan/MoodBeats/.env root@148.135.138.197:${DEST}/.env\n\nThen re-run this script."
+  err ".env not found at ${DEST}/.env\n\nSCP it from your local machine first:\n  scp /home/chintan/MoodBeatz/.env root@148.135.138.197:${DEST}/.env\n\nThen re-run this script."
 fi
 
 log "Loading .env..."
@@ -107,7 +107,19 @@ upsert_env() {
     echo "${name}=${val}" >> "${DEST}/.env"
   fi
 }
-upsert_env NEXT_PUBLIC_API_URL "${API_BASE}"
+# Patch VITE_API_URL in frontend/.env.production (baked into the Docker image at build time)
+FRONTEND_ENV="${DEST}/frontend/.env.production"
+if [[ -f "${FRONTEND_ENV}" ]]; then
+  if grep -q "^VITE_API_URL=" "${FRONTEND_ENV}"; then
+    sed -i "s|^VITE_API_URL=.*|VITE_API_URL=${API_BASE}|" "${FRONTEND_ENV}"
+  else
+    echo "VITE_API_URL=${API_BASE}" >> "${FRONTEND_ENV}"
+  fi
+else
+  echo "VITE_API_URL=${API_BASE}" > "${FRONTEND_ENV}"
+  echo "VITE_CLERK_PUBLISHABLE_KEY=" >> "${FRONTEND_ENV}"
+  log "Created ${FRONTEND_ENV} — set VITE_CLERK_PUBLISHABLE_KEY manually if missing."
+fi
 upsert_env ALLOWED_ORIGINS "${API_BASE},https://148.135.138.197"
 upsert_env ENVIRONMENT "production"
 
@@ -128,8 +140,8 @@ need_key() {
 need_key CLERK_SECRET_KEY
 need_key CLERK_ISSUER
 need_key CLERK_JWKS_URL
-need_key NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 need_key YOUTUBE_API_KEY
+# Note: VITE_CLERK_PUBLISHABLE_KEY lives in frontend/.env.production, not root .env.
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   err "These .env keys are missing or still placeholder:\n$(printf '  - %s\n' "${missing[@]}")\n\nEdit ${DEST}/.env and re-run."
@@ -165,7 +177,7 @@ ${PUBLIC_HOST} {
         reverse_proxy 127.0.0.1:8001
     }
 
-    # All other traffic → Next.js frontend (port 3000)
+    # All other traffic → Vite/nginx frontend (port 3000)
     handle {
         reverse_proxy 127.0.0.1:3000
     }
@@ -179,7 +191,7 @@ caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || systemctl restart cadd
 # --- Done -------------------------------------------------------------------
 echo ""
 echo "╔═══════════════════════════════════════════════════════╗"
-echo "║  🎵 MoodBeats is LIVE!                                ║"  
+echo "║  🎵 MoodBeatz is LIVE!                                ║"  
 echo "╠═══════════════════════════════════════════════════════╣"
 echo "║  Site:  https://${PUBLIC_HOST}        ║"
 echo "║  API:   https://${PUBLIC_HOST}/api/health ║"

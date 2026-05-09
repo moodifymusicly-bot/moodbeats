@@ -1,8 +1,11 @@
 import uuid
 from datetime import datetime
+from typing import Any
+
 from sqlalchemy import String, DateTime, Boolean
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+
 from app.database import Base
 
 
@@ -34,3 +37,13 @@ class User(Base):
     mood_history = relationship("MoodHistory", back_populates="user", lazy="selectin")
     likes = relationship("Like", back_populates="user", lazy="selectin", cascade="all, delete-orphan")
     playlists = relationship("Playlist", back_populates="user", lazy="selectin", cascade="all, delete-orphan")
+
+    # ---------------------------------------------------------------------------
+    # Emotion profile — v2
+    # Added by Alembic revision 0003_v2_emotion_features.
+    # 7-dim dict keyed by Ekman emotion: {joy: 0.0, sadness: 0.0, …}
+    # Updated by user_emotion_profile.py on every interaction.
+    # ---------------------------------------------------------------------------
+    emotion_vector: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )

@@ -57,7 +57,7 @@ export interface MoodHistoryEntry {
     timestamp: string;
 }
 
-export type MoodType = 'happy' | 'sad' | 'gym' | 'study' | 'rock';
+export type MoodType = string;
 
 export const MOOD_CONFIG: Record<MoodType, {
     emoji: string;

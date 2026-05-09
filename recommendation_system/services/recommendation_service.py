@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -663,6 +664,10 @@ async def get_recommendations(
         )
 
     scored_songs.sort(key=lambda x: x["score"], reverse=True)
+    # Deduplicate by normalised title+artist before slicing so that multiple
+    # versions (remix, live, remastered, etc.) of the same song don't consume
+    # several slots in the recommendation feed.
+    scored_songs = _dedupe_by_normalized_title(scored_songs)
     top = scored_songs[:limit]
 
     # -----------------------------------------------------------------------
@@ -802,6 +807,8 @@ async def get_for_you_recommendations(
         )
 
     scored.sort(key=lambda x: x["score"], reverse=True)
+    # Deduplicate by normalised title+artist (same logic as mood recommendations).
+    scored = _dedupe_by_normalized_title(scored)
     top = scored[:limit]
 
     # -----------------------------------------------------------------------
@@ -844,6 +851,70 @@ def _dedupe_rows(
         if cap is not None and len(out) >= cap:
             break
     return out
+
+
+# ---------------------------------------------------------------------------
+# Recommendation-feed deduplication by normalised title + artist
+# ---------------------------------------------------------------------------
+
+_VERSION_SUFFIX_RE = re.compile(
+    r"""
+    \s*\(                          # opening paren (with optional leading space)
+    (?:
+        remix|live|acoustic|remastered|radio\s+edit
+        |feat\.?[^)]*              # feat. anything
+        |extended|instrumental|official
+    )
+    [^)]*                          # rest of paren content
+    \)                             # closing paren
+    |\s*-\s*\d{4}\s*$             # trailing year tag like " - 2020"
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _normalize_title(title: str) -> str:
+    """Strip common version suffixes and normalise to lowercase for grouping.
+
+    Examples
+    --------
+    "Blinding Lights (Remix)"      -> "blinding lights"
+    "Shallow (feat. Lady Gaga)"    -> "shallow"
+    "Hotel California (Remastered)" -> "hotel california"
+    "Shape of You - 2020"          -> "shape of you"
+    """
+    stripped = _VERSION_SUFFIX_RE.sub("", title)
+    return stripped.strip().lower()
+
+
+def _dedupe_by_normalized_title(rows: list[dict]) -> list[dict]:
+    """Keep the highest-scoring entry per (normalised_title, artist) group.
+
+    The input list **must already be sorted by score descending** so that the
+    first occurrence of each group key is always the best one.  Insertion order
+    of the first-seen representative is preserved, so overall ranking is intact.
+
+    This is intentionally applied only to recommendation feeds, never to search
+    results, so users can still find all versions of a song by searching.
+    """
+    seen_keys: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for row in rows:
+        song = row["song"]
+        norm_title = _normalize_title(getattr(song, "title", "") or "")
+        norm_artist = (getattr(song, "artist", "") or "").strip().lower()
+        key = (norm_title, norm_artist)
+        if key in seen_keys:
+            logger.debug(
+                "[Dedup] Dropped duplicate version: title=%r artist=%r score=%.4f",
+                getattr(song, "title", ""),
+                norm_artist,
+                row.get("score", 0.0),
+            )
+            continue
+        seen_keys.add(key)
+        deduped.append(row)
+    return deduped
 
 
 def _song_rows_from_songs(songs: list[Song]) -> list[dict]:

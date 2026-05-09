@@ -67,7 +67,7 @@ export default function LandingView({ onEnter }: LandingViewProps) {
                 <h1
                     className="font-bold text-[32px] tracking-[-0.5px] text-[var(--text-primary)] text-center relative mb-4"
                 >
-                    MoodBeats
+                    MoodBeatz
                     <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-[40px] h-[3px] rounded-full bg-[var(--accent)]" />
                 </h1>
 

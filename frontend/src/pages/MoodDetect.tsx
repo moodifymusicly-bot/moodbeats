@@ -4,6 +4,8 @@ import { useLocation } from "wouter";
 import * as faceapi from "@vladmandic/face-api";
 import { Logo } from "@/components/layout/Logo";
 import { usePlayer } from "@/lib/PlayerContext";
+import { api } from "@/lib/api";
+import { mapAbstractMoodToBackend } from "@/lib/mood-mapping";
 
 const EMOTION_TO_MOOD: Record<string, string> = {
   happy: "Lucid",
@@ -32,6 +34,8 @@ export default function MoodDetect() {
   const [result, setResult] = useState<string | null>(null);
   const [labelIdx, setLabelIdx] = useState(0);
   const [progress, setProgress] = useState(0);
+  // Track best confidence for the winning emotion to pass to the backend
+  const bestConfidenceRef = useRef<number>(0);
 
   useEffect(() => {
     let activeStream: MediaStream | null = null;
@@ -94,6 +98,8 @@ export default function MoodDetect() {
               bestEmotion = expr;
             }
           });
+          // Update the ref so the timer closure can read the confidence
+          bestConfidenceRef.current = highestScore;
         }
       }
     }, 300);
@@ -111,9 +117,16 @@ export default function MoodDetect() {
       clearInterval(detectInterval);
       
       const detectedAbstract = EMOTION_TO_MOOD[bestEmotion] || "Weightless";
+      const confidence = bestConfidenceRef.current;
       setResult(detectedAbstract);
       setStatus("result");
       setDetectedMood(detectedAbstract);
+
+      // Record mood in backend for personalization
+      const backendMood = mapAbstractMoodToBackend(detectedAbstract);
+      api.selectMood(backendMood, "camera", confidence).catch((e) =>
+        console.warn("[MoodDetect] Failed to record mood:", e)
+      );
 
       setTimeout(() => {
         setLocation("/mood-playlist");

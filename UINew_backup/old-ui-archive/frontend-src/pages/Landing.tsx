@@ -160,7 +160,7 @@ export default function Landing() {
           <h2 className="text-2xl font-light text-primary-foreground">Made for the late-night listener.</h2>
         </div>
         <p className="text-muted-foreground font-light text-sm text-center leading-relaxed">
-          MoodBeats is a small, intimate music companion. It listens before you do — to the way
+          MoodBeatz is a small, intimate music companion. It listens before you do — to the way
           you carry yourself, the weight of the day, the silence between songs — and gives you
           back a soundtrack that feels like it was waiting for you.
         </p>
@@ -177,7 +177,7 @@ export default function Landing() {
         viewport={{ once: true }}
         transition={{ duration: 0.8 }}
       >
-        <span className="tracking-wider">MOODBEATS · 2026</span>
+        <span className="tracking-wider">MOODBEATZ · 2026</span>
         <span>v0.1 · preview</span>
       </motion.footer>
     </div>

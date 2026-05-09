@@ -71,7 +71,7 @@ export default function UserMenu({ isSignedIn, userName, userImage, onSignIn, on
                         >
                             <div className="px-4 py-3 border-b border-white/5">
                                 <p className="text-xs font-bold text-white/80 truncate">{userName}</p>
-                                <p className="text-[9px] text-white/30 mt-0.5">MoodBeats Member</p>
+                                <p className="text-[9px] text-white/30 mt-0.5">MoodBeatz Member</p>
                             </div>
                             <button
                                 onClick={() => { onSignOut(); setOpen(false); }}

@@ -12,7 +12,7 @@ uv run pytest tests/test_plan_verify_reco_flow.py -v
 
 if [[ "${1:-}" == "--sql" ]]; then
   echo "==> optional: SQL sample (requires docker compose and db service)"
-  if docker compose -f "$ROOT/docker-compose.yml" ps db 2>/dev/null | grep -q moodbeats-db; then
+  if docker compose -f "$ROOT/docker-compose.yml" ps db 2>/dev/null | grep -q moodbeatz-db; then
     docker compose -f "$ROOT/docker-compose.yml" exec -T db \
       psql -U "${POSTGRES_USER:-moodmusic}" -d "${POSTGRES_DB:-moodmusic}" \
       -c "SELECT interaction_type, COUNT(*) FROM interactions GROUP BY 1 ORDER BY 1;" \

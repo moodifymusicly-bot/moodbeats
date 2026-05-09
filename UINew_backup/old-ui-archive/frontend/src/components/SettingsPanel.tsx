@@ -95,7 +95,7 @@ export default function SettingsPanel({
                             {/* About Section */}
                             <p className="text-[9px] tracking-[0.2em] uppercase text-white/25 font-bold mb-3 mt-5">About</p>
                             <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                                <p className="text-xs text-white/50 font-semibold">MoodBeats</p>
+                                <p className="text-xs text-white/50 font-semibold">MoodBeatz</p>
                                 <p className="text-[10px] text-white/25 mt-1">AI-powered mood-based music discovery</p>
                                 <p className="text-[10px] text-white/15 mt-0.5">v1.0.0</p>
                             </div>

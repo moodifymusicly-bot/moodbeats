@@ -57,17 +57,17 @@ export default function FaceCamera({ onMoodDetected, isActive, isDetecting, onSt
     const [faceApiLoaded, setFaceApiLoaded] = useState(false);
     const streamRef = useRef<MediaStream | null>(null);
     const faceApiRef = useRef<any>(null);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [countdown, setCountdown] = useState(SCAN_DURATION);
-    const countdownRef = useRef<NodeJS.Timeout | null>(null);
+    const countdownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const emotionAccumulator = useRef<Record<string, number[]>>({});
 
     const [showCelebration, setShowCelebration] = useState(false);
     const [scanKey, setScanKey] = useState(0);
     const autoStartedRef = useRef(false);
     const finalizeLockedRef = useRef(false);
-    const finalizeTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const finalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Face box state for animations
     const [faceBox, setFaceBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);

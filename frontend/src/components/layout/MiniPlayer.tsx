@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { Play, Pause } from "lucide-react";
 import { usePlayer } from "@/lib/PlayerContext";
 import { motion, AnimatePresence } from "framer-motion";
+import { normalizeYouTubeThumbnail } from "@/lib/utils";
 
 export const MiniPlayer = () => {
   const { currentTrack, isPlaying, togglePlayPause, progress } = usePlayer();
@@ -25,7 +26,7 @@ export const MiniPlayer = () => {
         <div className="glass-panel rounded-2xl overflow-hidden shadow-lg shadow-black/40 border border-white/10">
           <div className="p-2 flex items-center gap-3">
             <Link href="/player" className="w-12 h-12 rounded-xl overflow-hidden flex-none">
-              <img src={currentTrack.coverUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
+              <img src={normalizeYouTubeThumbnail(currentTrack.cover_url) || ""} alt={currentTrack.title} className="w-full h-full object-cover" />
             </Link>
 
             <Link href="/player" className="flex-1 min-w-0 cursor-pointer py-1">

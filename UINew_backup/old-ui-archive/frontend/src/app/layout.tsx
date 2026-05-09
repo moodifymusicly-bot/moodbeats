@@ -4,7 +4,7 @@ import { Toaster } from 'react-hot-toast'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
-    title: 'MoodBeats — AI-Powered Music for Every Mood',
+    title: 'MoodBeatz — AI-Powered Music for Every Mood',
     description: 'Discover music that matches your mood. Powered by deep learning hybrid recommendations.',
 }
 

@@ -3,16 +3,16 @@
 # Run ON the VPS (SSH) when the site does not load in the browser.
 # Diagnoses: cloud firewall vs local services vs Caddy/TLS.
 #
-#   bash /opt/moodbeats/scripts/vps-diagnose-remote-access.sh
+#   bash /opt/moodbeatz/scripts/vps-diagnose-remote-access.sh
 # -----------------------------------------------------------------------
 
 set -u
 
-MOODBEATS_DIR="${MOODBEATS_DIR:-/opt/moodbeats}"
+MOODBEATZ_DIR="${MOODBEATZ_DIR:-/opt/moodbeatz}"
 PUBLIC_HOST="${PUBLIC_HOST:-148.135.138.197.nip.io}"
 
 echo "=============================================="
-echo " MoodBeats — remote access diagnosis"
+echo " MoodBeatz — remote access diagnosis"
 echo "=============================================="
 echo
 
@@ -54,10 +54,10 @@ if [[ -f /etc/caddy/Caddyfile ]]; then
 fi
 
 echo "=== 5) Docker stack ==="
-if [[ -d "${MOODBEATS_DIR}" ]]; then
-  (cd "${MOODBEATS_DIR}" && docker compose ps 2>&1) || true
+if [[ -d "${MOODBEATZ_DIR}" ]]; then
+  (cd "${MOODBEATZ_DIR}" && docker compose ps 2>&1) || true
 else
-  echo "Missing ${MOODBEATS_DIR}"
+  echo "Missing ${MOODBEATZ_DIR}"
 fi
 echo
 

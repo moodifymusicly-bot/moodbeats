@@ -30,7 +30,7 @@ def _fake_song(**overrides):
 
 
 def test_serialize_deserialize_roundtrip():
-    from app.services.recommendation_service import (
+    from recommendation_system.services.recommendation_service import (
         _deserialize_results,
         _serialize_results,
     )
@@ -55,7 +55,7 @@ def test_serialize_deserialize_roundtrip():
 
 
 def test_blend_popularity_prefers_live_counters():
-    from app.services.recommendation_service import _blend_popularity
+    from recommendation_system.services.recommendation_service import _blend_popularity
 
     song = _fake_song(popularity=40)  # base 0.4
     live = {song.id: 1.0}
@@ -65,7 +65,7 @@ def test_blend_popularity_prefers_live_counters():
 
 
 def test_blend_popularity_falls_back_to_db_when_no_live_data():
-    from app.services.recommendation_service import _blend_popularity
+    from recommendation_system.services.recommendation_service import _blend_popularity
 
     song = _fake_song(popularity=80)
     assert _blend_popularity(song, {}) == pytest.approx(0.8, rel=1e-3)
@@ -74,7 +74,7 @@ def test_blend_popularity_falls_back_to_db_when_no_live_data():
 def test_mood_reco_cache_key_includes_user_segment():
     import uuid
 
-    from app.services.recommendation_service import mood_reco_cache_key
+    from recommendation_system.services.recommendation_service import mood_reco_cache_key
 
     uid = uuid.uuid4()
     assert mood_reco_cache_key("happy", 20, None) == "mb:reco:mood:happy:20:u:anon"

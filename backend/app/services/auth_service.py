@@ -141,7 +141,7 @@ async def _upsert_user_from_clerk(payload: dict[str, Any], db: AsyncSession) -> 
     result = await db.execute(select(User).where(User.clerk_id == clerk_id))
     user = result.scalar_one_or_none()
 
-    email = _derive_email(payload) or f"{clerk_id}@moodbeats.local"
+    email = _derive_email(payload) or f"{clerk_id}@moodbeatz.local"
     username = _derive_username(payload, clerk_id)
 
     if user is None:
@@ -166,7 +166,7 @@ async def _upsert_user_from_clerk(payload: dict[str, Any], db: AsyncSession) -> 
 
     # Keep profile fields mostly in sync on sign-in; never clobber with empties.
     changed = False
-    if email and user.email != email and not email.endswith("@moodbeats.local"):
+    if email and user.email != email and not email.endswith("@moodbeatz.local"):
         user.email = email
         changed = True
     if username and user.username != username:

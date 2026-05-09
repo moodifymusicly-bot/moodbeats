@@ -104,7 +104,7 @@ export default function NowPlaying({
                                 </button>
                                 <div className="text-center">
                                     <p className="text-[10px] tracking-[0.25em] uppercase text-white/30">
-                                        MoodBeats // Now Playing
+                                        MoodBeatz // Now Playing
                                     </p>
                                     <p className="text-xs font-medium mt-0.5" style={{ color: moodConfig.color }}>
                                         {moodConfig.label} Mode

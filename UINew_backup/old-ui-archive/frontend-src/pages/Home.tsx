@@ -10,7 +10,7 @@ import { getGreeting } from "@/lib/mood-theme";
 
 const SignInPlaceholder = () => {
   const isSignedIn = false;
-  const userImage = "https://picsum.photos/seed/moodbeats-user/120/120";
+  const userImage = "https://picsum.photos/seed/moodbeatz-user/120/120";
 
   if (isSignedIn) {
     return (
@@ -150,7 +150,7 @@ export default function Home() {
         </Link>
 
         <p className="mt-5 text-sm text-muted-foreground font-light max-w-xs">
-          Tap to let MoodBeats read your vibe.
+          Tap to let MoodBeatz read your vibe.
         </p>
       </motion.div>
 

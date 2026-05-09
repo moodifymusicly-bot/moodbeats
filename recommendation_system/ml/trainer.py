@@ -10,7 +10,7 @@ import torch.optim as optim
 import numpy as np
 from typing import Optional
 
-from app.ml.hybrid_model import HybridRecommender
+from recommendation_system.ml.hybrid_model import HybridRecommender
 
 
 def bpr_loss(pos_scores: torch.Tensor, neg_scores: torch.Tensor) -> torch.Tensor:

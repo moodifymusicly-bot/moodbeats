@@ -7,10 +7,21 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+# ---------------------------------------------------------------------------
+# Conditional imports: when running as a standalone service the recommendation_
+# system package provides its own config and cache.  When mounted inside the
+# monolith (PYTHONPATH includes both packages) the app.* fallback is used.
+# ORM models always resolve from app.models via PYTHONPATH.
+# ---------------------------------------------------------------------------
+try:
+    from recommendation_system.config import get_reco_settings as get_settings  # type: ignore[assignment]
+    from recommendation_system.cache import cache  # type: ignore[assignment]
+except ImportError:  # pragma: no cover – monolith path
+    from app.config import get_settings  # type: ignore[assignment]
+    from app.services.cache import cache  # type: ignore[assignment]
+
 from app.models.interaction import Interaction
 from app.models.song import Song
-from app.services.cache import cache
 
 settings = get_settings()
 

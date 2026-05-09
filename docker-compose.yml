@@ -4,7 +4,7 @@
 services:
   db:
     image: postgres:15-alpine
-    container_name: moodbeats-db
+    container_name: moodbeatz-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moodmusic}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moodmusic_secret}
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: moodbeats-redis
+    container_name: moodbeatz-redis
     # Cache workload: AOF on for cheap durability, RDB disabled, LRU eviction
     # when we hit the memory ceiling, require password. No published port -
     # backend reaches redis on the compose network only.
@@ -39,7 +39,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: moodbeats-backend
+    container_name: moodbeatz-backend
     ports:
       - "8001:8000"
     env_file:
@@ -75,7 +75,7 @@ services:
       dockerfile: Dockerfile
       # Vite bakes VITE_* vars into the bundle at build time from frontend/.env.production.
       # No build args needed here — values come from the file already committed to the repo.
-    container_name: moodbeats-frontend
+    container_name: moodbeatz-frontend
     ports:
       - "3000:3000"
     # nginx serves static files — no runtime env vars required.
@@ -83,11 +83,11 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null 2>&1 || exit 1" ]
+      test: [ "CMD-SHELL", "curl -sf http://localhost:3000 > /dev/null || exit 1" ]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ services:
     build:
       context: .
       dockerfile: recommendation_system/Dockerfile
-    container_name: moodbeats-recommendation
+    container_name: moodbeatz-recommendation
     ports:
       - "8002:8002"
     env_file:
@@ -118,10 +118,10 @@ services:
       # FAISS ANN index — persisted to a Docker volume so the index survives
       # container restarts without a full rebuild on every startup.
       FAISS_ENABLED: ${FAISS_ENABLED:-true}
-      FAISS_INDEX_PATH: /var/moodbeats/faiss/songs
+      FAISS_INDEX_PATH: /var/moodbeatz/faiss/songs
       FAISS_MIN_CATALOG_SIZE: ${FAISS_MIN_CATALOG_SIZE:-50}
     volumes:
-      - faissdata:/var/moodbeats/faiss
+      - faissdata:/var/moodbeatz/faiss
     depends_on:
       db:
         condition: service_healthy

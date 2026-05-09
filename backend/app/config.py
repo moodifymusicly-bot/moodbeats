@@ -48,6 +48,24 @@ class Settings(BaseSettings):
     USER_ACTIVITY_COUNT_CACHE_TTL: int = 120  # total interactions count
     COLD_START_INTERACTION_THRESHOLD: int = 5  # below = cold-start UX
 
+    # --- v2 scoring (circumplex / Ekman emotion model) ---
+    # Set ENABLE_V2_SCORING=true in .env to activate the circumplex scoring path.
+    # When False (default) the legacy v1 cosine-distance path is used exclusively.
+    ENABLE_V2_SCORING: bool = False
+
+    # --- Song ingestion worker (Phase 5) ---
+    YOUTUBE_QUOTA_DAILY_LIMIT: int = 10_000      # YouTube Data API v3 quota units/day
+    YOUTUBE_MIN_DURATION_SECONDS: int = 60       # reject reels / clips shorter than 1 min
+    YOUTUBE_MAX_DURATION_SECONDS: int = 900      # reject podcasts longer than 15 min
+    # YouTube category IDs to allow; 10=Music, 24=Entertainment (subset with music)
+    YOUTUBE_ALLOWED_CATEGORY_IDS: list[str] = ["10", "24"]
+    SONG_INGESTION_BATCH_SIZE: int = 10          # songs per mood per run
+    SONG_INGESTION_CACHE_TTL: int = 86400        # 24 h — re-ingest each mood at most once/day
+
+    # --- User emotion profile (Phase 6) ---
+    EMOTION_VECTOR_CACHE_TTL: int = 600          # 10 min — emotion vector TTL in Redis
+    EMOTION_VECTOR_DECAY_HALF_LIFE_DAYS: float = 14.0  # how fast old emotion data decays
+
     # --- Rate limiting (per-minute buckets) ---
     RATE_LIMIT_INTERACT: int = 120
     RATE_LIMIT_UPSERT: int = 60
@@ -55,13 +73,17 @@ class Settings(BaseSettings):
 
     # --- App ---
     ENVIRONMENT: str = "development"
-    APP_NAME: str = "MoodBeats"
+    APP_NAME: str = "MoodBeatz"
     RUN_MIGRATIONS_ON_STARTUP: bool = False
 
     # CORS -- comma-separated origins
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
-    MOODS: list[str] = ["happy", "sad", "gym", "study", "rock"]
+    MOODS: list[str] = [
+        "happy", "sad", "gym", "study", "rock",
+        "Weightless", "Velvet", "Embered", "Tide", "Static",
+        "Midnight", "Drifting", "Electric", "Melancholic", "Lucid"
+    ]
 
     class Config:
         env_file = ".env"

@@ -1,7 +1,14 @@
 # Changelog
 
-All notable, user-visible changes to MoodBeats. Dates are the day the
+All notable, user-visible changes to MoodBeatz. Dates are the day the
 change lands on `main`.
+
+## [Unreleased] — 2026-05-09
+
+### Fixed
+- **Duplicate song versions in recommendations**: The recommendation feed no longer surfaces the same song multiple times as separate entries (e.g., "Shape of You", "Shape of You (Remix)", "Shape of You (Live)"). A deduplication step now normalises song titles by stripping common version suffixes — `(remix)`, `(live)`, `(acoustic)`, `(remastered)`, `(radio edit)`, `(feat. …)`, `(extended)`, `(instrumental)`, `(official)`, and trailing year tags like `- 2020` — then groups results by `(normalised_title, artist)`. Only the highest-scoring version from each group reaches the final output. Scoring logic and ranking order are unaffected. **Search results are not affected** — all versions of a song remain visible when users search directly.
+
+---
 
 ## [Unreleased] — 2026-04-27
 
@@ -114,7 +121,7 @@ change lands on `main`.
 ### Added
 - **FAISS ANN Index** (`recommendation_system/ml/faiss_index.py`): Upgraded from brute-force `IndexFlatIP` to `IndexIVFFlat` (cluster-based approximate nearest-neighbour). Catalog ≥ 256 songs uses IVF with auto-tuned `nlist`; smaller catalogs fall back to exact FlatIP.
 - **FaissManager singleton** (`recommendation_system/ml/faiss_manager.py`): Owns the FAISS index lifecycle — disk warm-start, staleness check vs DB row count, incremental append after new song ingestion, async-safe query with graceful degradation.
-- **Disk persistence**: FAISS index files persisted to `/var/moodbeats/faiss/` Docker volume (`faissdata`) — survives container restarts without full rebuild.
+- **Disk persistence**: FAISS index files persisted to `/var/moodbeatz/faiss/` Docker volume (`faissdata`) — survives container restarts without full rebuild.
 - **FAISS wired into recommendations**: `get_recommendations()` and `get_for_you_recommendations()` in `recommendation_service.py` now use FAISS to narrow candidates to 3×limit before re-ranking, dropping scoring from O(N) to O(k log N).
 - **`GET /api/recommendations/queue-ahead`**: New endpoint that accepts `exclude_ids` CSV to return fresh songs deduplicated against the current queue. Powers frontend proactive refill.
 - **Proactive queue-ahead in PlayerContext**: `useEffect` low-watermark trigger — when ≤3 songs remain in queue, silently fetches 10 more and appends without interrupting playback.
@@ -128,3 +135,13 @@ change lands on `main`.
 - `docker-compose.yml`: Added `faissdata` volume and `FAISS_*` env vars on `recommendation-service`.
 - `frontend/src/lib/api.ts`: Added `getQueueAheadRecommendations()`.
 - `frontend/src/pages/MoodPlaylist.tsx`: Uses `extendedPlaylist` state + IntersectionObserver for infinite scroll.
+
+## [Unreleased] — 2026-04-27 (Queue Fix)
+
+### Fixed
+- **Empty recommendation queue / no new songs**: Users (especially new users) were seeing an empty or frozen recommendation queue. Three root causes were resolved:
+  1. **Song ingestion now runs on service startup**: The YouTube ingestion worker was dead code — neither Celery nor APScheduler is installed in the recommendation-service image, and `register_apscheduler_jobs()` was never called. Added `asyncio.create_task(_startup_ingest_all_moods())` in the FastAPI lifespan so new songs are fetched from YouTube for every mood every 24h automatically on service start.
+  2. **scikit-learn cold-start fallback wired in**: `scikit-learn` was installed but never called anywhere. Added `_cold_start_knn_fallback()` using `NearestNeighbors` (cosine distance) that fills the queue with content-based nearest-neighbor songs when the primary scoring pipeline returns fewer results than requested. Applies to both mood-based and personalized recommendation endpoints.
+  3. **Queue is never empty**: Added `_seed_popularity_fallback()` as a final safety net — if even the KNN fallback returns nothing (e.g., catalog empty, KNN failure), the most popular songs from the DB are returned, guaranteeing users always get a playable queue.
+- **Stale empty results no longer cached**: Both `get_recommendations()` and `get_for_you_recommendations()` previously cached degraded (under-limit) results with the full Redis TTL, causing users to see an empty queue until cache expiry. Cache writes are now guarded by `len(top) >= limit` — only full-quality responses are persisted.
+

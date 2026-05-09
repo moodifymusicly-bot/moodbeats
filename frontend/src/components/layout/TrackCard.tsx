@@ -2,6 +2,8 @@ import { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play } from "lucide-react";
 import { Song } from "@/lib/types";
+import { HeartButton } from "@/components/layout/HeartButton";
+import { normalizeYouTubeThumbnail } from "@/lib/utils";
 
 const PREVIEW_MS = 5000;
 
@@ -9,6 +11,8 @@ interface TrackCardProps {
   track: Song;
   onClick: () => void;
   width?: "sm" | "md" | "lg";
+  /** Optional: explicitly pass mood to HeartButton for color (falls back to PlayerContext) */
+  mood?: string | null;
 }
 
 const SIZE_CLASSES = {
@@ -23,12 +27,12 @@ const CARD_W = {
   lg: "w-44",
 };
 
-export const TrackCard = ({ track, onClick, width = "md" }: TrackCardProps) => {
+export const TrackCard = ({ track, onClick, width = "md", mood }: TrackCardProps) => {
   const [previewing, setPreviewing] = useState(false);
   const [previewProgress, setPreviewProgress] = useState(0);
-  const holdTimer = useRef<NodeJS.Timeout | null>(null);
-  const previewTimer = useRef<NodeJS.Timeout | null>(null);
-  const tickTimer = useRef<NodeJS.Timeout | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAt = useRef<number>(0);
   const triggered = useRef(false);
 
@@ -97,14 +101,27 @@ export const TrackCard = ({ track, onClick, width = "md" }: TrackCardProps) => {
       onClick={handleClick}
       className={`flex-none ${CARD_W[width]} mr-4 cursor-pointer group select-none`}
     >
-      <div className={`${SIZE_CLASSES[width]} rounded-2xl overflow-hidden mb-3 relative`}>
+      {/* Card image — Phase 2: aspect-ratio 1/1 + object-cover ensures no black bars */}
+      <div
+        className={`${SIZE_CLASSES[width]} rounded-2xl overflow-hidden mb-3 relative`}
+        style={{ aspectRatio: "1 / 1" }}
+      >
         <img
-          src={track.cover_url || ""}
+          src={normalizeYouTubeThumbnail(track.cover_url) || ""}
           alt={track.title}
           draggable={false}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
         <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors duration-300" />
+
+        {/* Phase 3: HeartButton overlay — top-right corner of card.
+            Uses existing /api/library/likes endpoints (not new endpoints). */}
+        <HeartButton
+          songId={track.id}
+          mood={mood}
+          variant="overlay"
+          size={16}
+        />
 
         <AnimatePresence>
           {previewing && (
@@ -152,20 +169,8 @@ export const TrackCard = ({ track, onClick, width = "md" }: TrackCardProps) => {
 
 export const TrackCardSkeleton = ({ width = "md" }: { width?: "sm" | "md" | "lg" }) => (
   <div className={`flex-none ${CARD_W[width]} mr-4`}>
-    <div className={`${SIZE_CLASSES[width]} rounded-2xl mb-3 relative overflow-hidden bg-white/5`}>
-      <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
-        animate={{ x: ["-100%", "100%"] }}
-        transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }}
-      />
-    </div>
-    <div className="h-3 w-3/4 bg-white/10 rounded mb-2 overflow-hidden relative">
-      <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent"
-        animate={{ x: ["-100%", "100%"] }}
-        transition={{ duration: 1.4, repeat: Infinity, ease: "linear", delay: 0.1 }}
-      />
-    </div>
-    <div className="h-2.5 w-1/2 bg-white/5 rounded" />
+    <div className={`${SIZE_CLASSES[width]} rounded-2xl mb-3 skeleton-shimmer`} />
+    <div className="h-3.5 w-3/4 rounded-full mb-2 skeleton-shimmer" />
+    <div className="h-2.5 w-1/2 rounded-full skeleton-shimmer" />
   </div>
 );

@@ -6,7 +6,7 @@ export default function PreviewPage() {
   return (
     <>
       <Head>
-        <title>MoodBeats | Sonic Noir</title>
+        <title>MoodBeatz | Sonic Noir</title>
         <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </Head>
@@ -33,7 +33,7 @@ export default function PreviewPage() {
 <header className="fixed top-0 w-full z-50 bg-[#131314]/70 backdrop-blur-xl border-b-[0.5px] border-[#4c4354]/15 flex justify-between items-center px-6 py-4 w-full">
 <div className="flex items-center gap-4">
 <span className="material-symbols-outlined text-[#dcb8ff] hover:bg-[#3a393a] transition-colors duration-300 p-2 rounded-full cursor-pointer active:scale-95 transition-transform cubic-bezier(0.4,0,0.2,1)">menu</span>
-<span className="text-xl font-black tracking-tighter text-[#e5e2e3]">MoodBeats</span>
+<span className="text-xl font-black tracking-tighter text-[#e5e2e3]">MoodBeatz</span>
 </div>
 <div className="flex items-center gap-2">
 <span className="material-symbols-outlined text-[#dcb8ff] hover:bg-[#3a393a] transition-colors duration-300 p-2 rounded-full cursor-pointer active:scale-95 transition-transform cubic-bezier(0.4,0,0.2,1)">account_circle</span>
@@ -147,14 +147,14 @@ export default function PreviewPage() {
 </main>
 {/* Footer */}
 <footer className="bg-[#0e0e0f] border-t-[0.5px] border-[#4c4354]/15 w-full py-12 flex flex-col items-center gap-8 px-6">
-<div className="font-bold text-[#e5e2e3]">MoodBeats</div>
+<div className="font-bold text-[#e5e2e3]">MoodBeatz</div>
 <div className="flex gap-8">
 <a className="font-['Manrope'] text-sm tracking-widest uppercase text-[#cfc2d7] hover:text-[#dcb8ff] transition-colors" href="#">Privacy</a>
 <a className="font-['Manrope'] text-sm tracking-widest uppercase text-[#cfc2d7] hover:text-[#dcb8ff] transition-colors" href="#">Terms</a>
 <a className="font-['Manrope'] text-sm tracking-widest uppercase text-[#cfc2d7] hover:text-[#dcb8ff] transition-colors" href="#">Contact</a>
 </div>
 <div className="font-['Manrope'] text-xs tracking-widest uppercase text-[#cfc2d7] opacity-50">
-            © 2024 MoodBeats. All rights reserved.
+            © 2024 MoodBeatz. All rights reserved.
         </div>
 </footer>
 {/* FAB Suppression: Not rendered for this landing/intro experience */}

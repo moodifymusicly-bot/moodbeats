@@ -60,7 +60,7 @@ export const Logo = ({
         <span
           className={`font-sans font-semibold tracking-[0.3em] ${s.text} text-primary-foreground/95`}
         >
-          MOODBEATS
+          MOODBEATZ
         </span>
       )}
     </div>

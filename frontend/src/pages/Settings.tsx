@@ -6,7 +6,7 @@ export default function Settings() {
   const { backgroundPlayback, setBackgroundPlayback } = useSettings();
 
   return (
-    <div className="min-h-[100dvh] pb-32 px-6 py-8">
+    <div className="h-[100dvh] overflow-y-auto pb-safe-nav px-6 py-8">
       <h1 className="text-3xl font-medium tracking-tight text-primary-foreground mb-8">Settings</h1>
 
       <div className="space-y-8">

@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------
-# MoodBeats VPS Bootstrap
+# MoodBeatz VPS Bootstrap
 # Run on the Debian VPS as root after cloning the repo:
 #
-#   bash /opt/moodbeats/scripts/debian-vps-bootstrap.sh <public_hostname> [repo_dir]
+#   bash /opt/moodbeatz/scripts/debian-vps-bootstrap.sh <public_hostname> [repo_dir]
 #
 # Example (nip.io — free, automatic DNS + Let's Encrypt):
-#   bash /opt/moodbeats/scripts/debian-vps-bootstrap.sh 148.135.138.197.nip.io /opt/moodbeats
+#   bash /opt/moodbeatz/scripts/debian-vps-bootstrap.sh 148.135.138.197.nip.io /opt/moodbeatz
 #
 # Prerequisites
 #   • Ports 80 and 443 open in your cloud firewall (for ACME HTTP-01 challenge)
-#   • .env already written at MOODBEATS_DIR/.env with real Clerk + YouTube keys
-#     (copy from your laptop: scp .env root@<vps>:/opt/moodbeats/.env)
+#   • .env already written at MOODBEATZ_DIR/.env with real Clerk + YouTube keys
+#     (copy from your laptop: scp .env root@<vps>:/opt/moodbeatz/.env)
 # -----------------------------------------------------------------------
 
 set -euo pipefail
 
-PUBLIC_HOST="${1:?Usage: $0 <public_hostname> [moodbeats_dir]}"
-MOODBEATS_DIR="${2:-$PWD}"
+PUBLIC_HOST="${1:?Usage: $0 <public_hostname> [moodbeatz_dir]}"
+MOODBEATZ_DIR="${2:-$PWD}"
 API_BASE="https://${PUBLIC_HOST}"
 
-if [[ ! -f "${MOODBEATS_DIR}/docker-compose.yml" ]]; then
-  echo "docker-compose.yml not found under ${MOODBEATS_DIR}" >&2
+if [[ ! -f "${MOODBEATZ_DIR}/docker-compose.yml" ]]; then
+  echo "docker-compose.yml not found under ${MOODBEATZ_DIR}" >&2
   exit 1
 fi
 
@@ -70,12 +70,12 @@ systemctl enable caddy
 systemctl reload-or-restart caddy
 
 # --- .env ---------------------------------------------------------------
-cd "${MOODBEATS_DIR}"
+cd "${MOODBEATZ_DIR}"
 
 if [[ ! -f .env ]]; then
-  echo "ERROR: .env not found at ${MOODBEATS_DIR}/.env" >&2
+  echo "ERROR: .env not found at ${MOODBEATZ_DIR}/.env" >&2
   echo "Copy it from your local machine:" >&2
-  echo "  scp /home/chintan/MoodBeats/.env root@$(hostname -I | awk '{print $1}'):${MOODBEATS_DIR}/.env" >&2
+  echo "  scp /home/chintan/MoodBeatz/.env root@$(hostname -I | awk '{print $1}'):${MOODBEATZ_DIR}/.env" >&2
   exit 1
 fi
 
@@ -137,7 +137,7 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     echo "  - ${m}" >&2
   done
   echo "" >&2
-  echo "Edit ${MOODBEATS_DIR}/.env with your real Clerk/YouTube credentials and re-run." >&2
+  echo "Edit ${MOODBEATZ_DIR}/.env with your real Clerk/YouTube credentials and re-run." >&2
   exit 1
 fi
 
@@ -166,7 +166,7 @@ done
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  MoodBeats is live!                              ║"
+echo "║  MoodBeatz is live!                              ║"
 echo "╠══════════════════════════════════════════════════╣"
 echo "║  Site:    https://${PUBLIC_HOST}"
 echo "║  API:     https://${PUBLIC_HOST}/api/health"

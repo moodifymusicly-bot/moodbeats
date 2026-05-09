@@ -105,7 +105,7 @@ export default function HomeView(props: HomeViewProps) {
                     onClick={onNavLanding}
                     className="text-[13px] font-[600] tracking-[3px] text-[var(--text-secondary)] uppercase hover:text-[var(--text-primary)] transition-colors"
                 >
-                    MOODBEATS
+                    MOODBEATZ
                 </button>
                 <div className="w-[32px] h-[32px] rounded-full border-[1.5px] border-[var(--border)] overflow-hidden shrink-0 flex items-center justify-center">
                     <UserMenu

@@ -8,7 +8,7 @@ type SettingsContextValue = Settings & {
   setBackgroundPlayback: (value: boolean) => void;
 };
 
-const STORAGE_KEY = "moodbeats.settings.v1";
+const STORAGE_KEY = "moodbeatz.settings.v1";
 
 const DEFAULTS: Settings = {
   backgroundPlayback: false,

@@ -1,4 +1,4 @@
-# MoodBeats — Production Readiness Audit
+# MoodBeatz — Production Readiness Audit
 _Last updated: 2026-04-20_
 
 ---
@@ -39,8 +39,8 @@ _Last updated: 2026-04-20_
 | Change | Where | How |
 |---|---|---|
 | Logo click → landing page | `NavBar.tsx` | `onHome` prop + `useTransition` |
-| "MoodBeats" title → landing | Home top-bar (`page.tsx`) | `<button>` wrapping the text, `setView('landing')` |
-| "MoodBeats // Media" → landing | Playing view header | `<button id="playing-logo-btn">` |
+| "MoodBeatz" title → landing | Home top-bar (`page.tsx`) | `<button>` wrapping the text, `setView('landing')` |
+| "MoodBeatz // Media" → landing | Playing view header | `<button id="playing-logo-btn">` |
 | NAV-1: `useTransition` for nav | `BottomNav` in `page.tsx` | Wraps all `onNav(item.id)` calls |
 | NAV-1: `useTransition` for sign-in | `NavBar.tsx` | Wraps `onAuthClick()` |
 
@@ -108,10 +108,10 @@ _Last updated: 2026-04-20_
 # 1. Set production env vars in backend/.env
 ENVIRONMENT=production
 DATABASE_URL=postgresql+asyncpg://moodmusic:<STRONG_PASSWORD>@localhost:5432/moodmusic
-ALLOWED_ORIGINS=https://moodbeats.<your-ip>.sslip.io
+ALLOWED_ORIGINS=https://moodbeatz.<your-ip>.sslip.io
 
 # 2. Run migrations manually on VPS before first container start
-docker exec moodbeats_backend alembic upgrade head
+docker exec moodbeatz_backend alembic upgrade head
 
 # 3. Build frontend for production (not dev mode)
 # In docker-compose.yml, change frontend command to:

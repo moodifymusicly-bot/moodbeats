@@ -72,7 +72,7 @@ class RecoSettings(BaseSettings):
 
     # --- FAISS ANN index ---
     FAISS_ENABLED: bool = True
-    FAISS_INDEX_PATH: str = "/var/moodbeats/faiss/songs"
+    FAISS_INDEX_PATH: str = "/var/moodbeatz/faiss/songs"
     FAISS_MIN_CATALOG_SIZE: int = 50   # below this use O(N) brute-force
 
     # --- v2 scoring (A4: enabled by default — songs without arousal fall back to v1) ---
@@ -97,7 +97,7 @@ class RecoSettings(BaseSettings):
 
     # --- App ---
     ENVIRONMENT: str = "development"
-    APP_NAME: str = "MoodBeats Recommendation Service"
+    APP_NAME: str = "MoodBeatz Recommendation Service"
     RUN_MIGRATIONS_ON_STARTUP: bool = False
 
     # CORS

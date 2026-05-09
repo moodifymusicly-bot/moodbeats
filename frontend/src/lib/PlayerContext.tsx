@@ -255,7 +255,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
               "Triggering forced queue refresh."
           );
           window.dispatchEvent(
-            new CustomEvent("moodbeats:skip-drift", {
+            new CustomEvent("moodbeatz:skip-drift", {
               detail: { skips: consecutiveSkipsRef.current },
             })
           );
@@ -485,7 +485,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   // --- "Add to queue" from the queue panel (Player.tsx) ---
-  // Player.tsx dispatches `moodbeats:add-to-queue` when the user taps the +
+  // Player.tsx dispatches `moodbeatz:add-to-queue` when the user taps the +
   // button on a suggested song.  We append it to both the live queue and the
   // originalQueue (deduplicated) so it survives shuffle toggles.
   useEffect(() => {
@@ -501,8 +501,8 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         return [...prev, song];
       });
     };
-    window.addEventListener("moodbeats:add-to-queue", handler);
-    return () => window.removeEventListener("moodbeats:add-to-queue", handler);
+    window.addEventListener("moodbeatz:add-to-queue", handler);
+    return () => window.removeEventListener("moodbeatz:add-to-queue", handler);
   }, []);
 
   return (

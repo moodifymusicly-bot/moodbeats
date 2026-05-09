@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,7 +13,9 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.database import async_session, init_db
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.routers import auth, library, moods, recommendations, songs, youtube
+from app.routers import auth, library, moods, search, songs, youtube
+# Note: the recommendations router lives in the standalone recommendation-service
+# container (port 8002). It is NOT mounted here to keep this image self-contained.
 from app.services.cache import cache
 
 logger = logging.getLogger(__name__)
@@ -75,7 +78,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MoodBeats API",
+    title="MoodBeatz API",
     description="AI-Powered Mood-Based Music Recommendation Engine",
     version="1.0.0",
     lifespan=lifespan,
@@ -115,9 +118,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router)
 app.include_router(songs.router)
 app.include_router(moods.router)
-app.include_router(recommendations.router)
 app.include_router(library.router)
+# Note: recommendations router is served by moodbeatz-recommendation (port 8002).
 app.include_router(youtube.router)
+# Phase 5: recently-searched history endpoints (/api/search/history)
+app.include_router(search.router)
 
 
 @app.get("/")

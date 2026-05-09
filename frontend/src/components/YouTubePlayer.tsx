@@ -10,6 +10,7 @@ interface YouTubePlayerProps {
     onProgress: (current: number, duration: number) => void;
     onReady: () => void;
     onAutoplayBlocked?: () => void;
+    registerSeek?: (seekFn: (time: number) => void) => void;
     width?: string | number;
     height?: string | number;
     className?: string;
@@ -57,24 +58,27 @@ export default function YouTubePlayer({
     onProgress,
     onReady,
     onAutoplayBlocked,
+    registerSeek,
     width = '100%',
     height = '100%',
     className = 'hidden',
 }: YouTubePlayerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const playerRef = useRef<any>(null);
-    const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
-    const autoplayCheckRef = useRef<NodeJS.Timeout | null>(null);
+    const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const autoplayCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Keep latest callbacks in refs so the YT event closures are never stale.
     const onProgressRef = useRef(onProgress);
     const onStateChangeRef = useRef(onStateChange);
     const onReadyRef = useRef(onReady);
     const onAutoplayBlockedRef = useRef(onAutoplayBlocked);
+    const registerSeekRef = useRef(registerSeek);
     onProgressRef.current = onProgress;
     onStateChangeRef.current = onStateChange;
     onReadyRef.current = onReady;
     onAutoplayBlockedRef.current = onAutoplayBlocked;
+    registerSeekRef.current = registerSeek;
 
     // Keep latest isPlaying in a ref for use inside async init.
     const isPlayingRef = useRef(isPlaying);
@@ -166,6 +170,13 @@ export default function YouTubePlayer({
                     onReady: () => {
                         if (cancelled) return;
                         onReadyRef.current();
+                        if (registerSeekRef.current && playerRef.current) {
+                            registerSeekRef.current((time: number) => {
+                                if (playerRef.current?.seekTo) {
+                                    playerRef.current.seekTo(time, true);
+                                }
+                            });
+                        }
                         try {
                             if (mutedRef.current) {
                                 playerRef.current?.mute?.();

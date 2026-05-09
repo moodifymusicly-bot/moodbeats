@@ -88,3 +88,38 @@ export const getGreeting = (date: Date = new Date()): string => {
   if (h < 22) return "Good evening";
   return "Late night";
 };
+
+/** Raw hex/css colors per mood for the heart save button.
+ *
+ * Design decision: the saved heart takes the color of the active mood palette
+ * rather than a fixed rose — it integrates naturally with the ambient theme.
+ * Borders everywhere are white (per design spec). Falls back to white when
+ * no mood is detected.
+ */
+const MOOD_SAVE_COLORS: Record<string, string> = {
+  Weightless:   "#7dd3fc", // sky-300
+  Velvet:       "#d8b4fe", // purple-300
+  Embered:      "#fdba74", // orange-300
+  Tide:         "#5eead4", // teal-300
+  Static:       "#e4e4e7", // zinc-300
+  Midnight:     "#a5b4fc", // indigo-300
+  Drifting:     "#67e8f9", // cyan-300
+  Electric:     "#fde047", // yellow-300
+  Melancholic:  "#93c5fd", // blue-300
+  Lucid:        "#6ee7b7", // emerald-300
+  // Legacy mood tags
+  happy:        "#fde047",
+  sad:          "#93c5fd",
+  gym:          "#fca5a5",
+  study:        "#6ee7b7",
+  rock:         "#fca5a5",
+};
+
+/**
+ * Returns the CSS color to use for the filled heart button.
+ * Uses the mood's accent palette color, or white when no mood is active.
+ */
+export const getMoodSaveColor = (mood: string | null): string => {
+  if (!mood) return "#ffffff";
+  return MOOD_SAVE_COLORS[mood] ?? "#ffffff";
+};

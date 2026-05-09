@@ -52,40 +52,66 @@ const MoodBadge = ({ mood }: { mood: string }) => (
 
 const SectionRow = ({
   title,
+  titleWidth = "w-48",
   caption,
+  captionWidth = "",
   loading,
   tracks,
   onPlay,
   keyPrefix,
 }: {
   title: string;
+  titleWidth?: string;
   caption?: string;
+  captionWidth?: string;
   loading: boolean;
-  tracks: Song[];
-  onPlay: (t: Song) => void;
+  tracks?: Song[];
+  onPlay?: (t: Song) => void;
   keyPrefix: string;
-}) => (
-  <section className="mb-10">
-    <div className="flex items-baseline justify-between mb-4">
-      <h2 className="text-xl font-medium tracking-tight text-primary-foreground">{title}</h2>
-      {caption && (
-        <span className="text-[10px] font-medium tracking-[0.25em] uppercase text-primary/70">{caption}</span>
-      )}
-    </div>
-    <div className="flex overflow-x-auto hide-scrollbar -mx-6 px-6">
-      {loading
-        ? Array.from({ length: 4 }).map((_, i) => <TrackCardSkeleton key={`${keyPrefix}-sk-${i}`} />)
-        : tracks.map((track) => (
-            <TrackCard key={`${keyPrefix}-${track.id}`} track={track} onClick={() => onPlay(track)} />
+}) => {
+  if (loading) {
+    return (
+      <section className="mb-10">
+        <div className="flex items-baseline justify-between mb-4">
+          <div className={`h-6 ${titleWidth} skeleton-shimmer rounded-full`} />
+          {captionWidth && <div className={`h-3 ${captionWidth} skeleton-shimmer rounded-full`} />}
+        </div>
+        <div className="flex overflow-hidden -mx-6 px-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <TrackCardSkeleton key={`${keyPrefix}-sk-${i}`} />
           ))}
-    </div>
-  </section>
-);
+        </div>
+      </section>
+    );
+  }
+
+  if (!tracks || tracks.length === 0) return null;
+
+  return (
+    <section className="mb-10">
+      <div className="flex items-baseline justify-between mb-4">
+        <h2 className="text-xl font-medium tracking-tight text-primary-foreground">{title}</h2>
+        {caption && (
+          <span className="text-[10px] font-medium tracking-[0.25em] uppercase text-primary/70">{caption}</span>
+        )}
+      </div>
+      <div className="flex overflow-x-auto hide-scrollbar -mx-6 px-6">
+        {tracks.map((track) => (
+          <TrackCard key={`${keyPrefix}-${track.id}`} track={track} onClick={() => onPlay!(track)} />
+        ))}
+      </div>
+    </section>
+  );
+};
 
 export default function Home() {
   const [, setLocation] = useLocation();
-  const { playTrack, detectedMood } = usePlayer();
-  const { isSignedIn } = useAuth();
+  const { playTrack, detectedMood, setDetectedMood } = usePlayer();
+  // isLoaded becomes true in the same render tick as isSignedIn settles.
+  // Using isLoaded as the enabled guard lets homeQuery fire immediately once
+  // Clerk resolves auth state, avoiding the extra ~200ms render cycle that
+  // occurs when guarding on !!isSignedIn (undefined → false/true transition).
+  const { isSignedIn, isLoaded: isAuthLoaded } = useAuth();
   const [greeting] = useState(getGreeting());
 
   const backendMood = detectedMood ? mapAbstractMoodToBackend(detectedMood) : undefined;
@@ -98,18 +124,22 @@ export default function Home() {
   const homeQuery = useQuery({
     queryKey: ['home', backendMood],
     queryFn: () => api.getHomeRecommendations({ starter_mood: backendMood }),
-    enabled: !!isSignedIn
+    // isAuthLoaded is true once Clerk has settled auth (signed-in OR anonymous).
+    // isSignedIn is already correct at that point — no additional render cycle.
+    // This starts the fetch in parallel with discoverQuery instead of sequentially.
+    enabled: isAuthLoaded && !!isSignedIn,
   });
 
-  const loading = discoverQuery.isLoading || (isSignedIn && homeQuery.isLoading);
+  const isDiscoverLoading = discoverQuery.isLoading;
+  const isHomeLoading = isSignedIn ? homeQuery.isLoading : false;
 
-  const handlePlayTrack = (track: Song, contextMood?: string) => {
-    playTrack(track, contextMood);
+  const handlePlayTrack = (track: Song, playlist?: Song[]) => {
+    playTrack(track, detectedMood || undefined, playlist);
     setLocation("/player");
   };
 
   return (
-    <div className="min-h-[100dvh] pb-40">
+    <div className="h-[100dvh] overflow-y-auto overflow-x-hidden pb-safe-nav">
       {/* Top bar */}
       <div className="px-6 pt-6 pb-4 flex items-center justify-between">
         <Logo size="sm" />
@@ -167,7 +197,7 @@ export default function Home() {
         </Link>
 
         <p className="mt-5 text-sm text-muted-foreground font-light max-w-xs">
-          Tap to let MoodBeats read your vibe.
+          Tap to let MoodBeatz read your vibe.
         </p>
       </motion.div>
 
@@ -185,13 +215,9 @@ export default function Home() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.04 }}
                 onClick={() => {
-                  const tracks = discoverQuery.data?.fresh_picks || [];
-                  if (tracks.length > 0) {
-                    handlePlayTrack(tracks[0], mood);
-                  } else {
-                    // Fallback if data not loaded
-                    setLocation("/mood-playlist");
-                  }
+                  // Set the detected mood and navigate to the mood playlist
+                  setDetectedMood(mood);
+                  setLocation("/mood-playlist");
                 }}
                 className="flex-none mr-3 px-5 py-2.5 rounded-full glass-panel text-sm font-medium text-muted-foreground hover:text-primary-foreground hover:bg-white/10 transition-all border border-white/5 whitespace-nowrap"
               >
@@ -201,45 +227,57 @@ export default function Home() {
           </div>
         </section>
 
-        {(isSignedIn && homeQuery.data?.last_played?.length > 0) && (
+        {(isSignedIn && isHomeLoading) ? (
+          <SectionRow title="" loading={true} keyPrefix="recent" titleWidth="w-40" />
+        ) : (isSignedIn && homeQuery.data?.last_played?.length > 0) ? (
           <SectionRow
             title="Recently Played"
-            loading={loading}
+            loading={false}
             tracks={homeQuery.data.last_played}
-            onPlay={(t) => handlePlayTrack(t)}
+            onPlay={(t) => handlePlayTrack(t, homeQuery.data.last_played)}
             keyPrefix="recent"
           />
-        )}
+        ) : null}
 
-        {discoverQuery.data?.trending && discoverQuery.data.trending.length > 0 && (
-          <SectionRow
-            title="Trending in your vibe"
-            loading={loading}
-            tracks={discoverQuery.data.trending}
-            onPlay={(t) => handlePlayTrack(t)}
-            keyPrefix="trend"
-          />
-        )}
+        {isDiscoverLoading ? (
+          <>
+            <SectionRow title="" loading={true} keyPrefix="trend" titleWidth="w-56" />
+            <SectionRow title="" loading={true} keyPrefix="fresh" titleWidth="w-32" />
+            <SectionRow title="" loading={true} keyPrefix="classic" titleWidth="w-48" captionWidth="w-24" />
+          </>
+        ) : (
+          <>
+            {discoverQuery.data?.trending && discoverQuery.data.trending.length > 0 && (
+              <SectionRow
+                title="Trending in your vibe"
+                loading={false}
+                tracks={discoverQuery.data.trending}
+                onPlay={(t) => handlePlayTrack(t, discoverQuery.data.trending)}
+                keyPrefix="trend"
+              />
+            )}
 
-        {discoverQuery.data?.fresh_picks && discoverQuery.data.fresh_picks.length > 0 && (
-          <SectionRow
-            title="Fresh Picks"
-            loading={loading}
-            tracks={discoverQuery.data.fresh_picks}
-            onPlay={(t) => handlePlayTrack(t)}
-            keyPrefix="fresh"
-          />
-        )}
+            {discoverQuery.data?.fresh_picks && discoverQuery.data.fresh_picks.length > 0 && (
+              <SectionRow
+                title="Fresh Picks"
+                loading={false}
+                tracks={discoverQuery.data.fresh_picks}
+                onPlay={(t) => handlePlayTrack(t, discoverQuery.data.fresh_picks)}
+                keyPrefix="fresh"
+              />
+            )}
 
-        {discoverQuery.data?.timeless_classics && discoverQuery.data.timeless_classics.length > 0 && (
-          <SectionRow
-            title="Timeless Classics"
-            caption="Always in season"
-            loading={loading}
-            tracks={discoverQuery.data.timeless_classics}
-            onPlay={(t) => handlePlayTrack(t)}
-            keyPrefix="classic"
-          />
+            {discoverQuery.data?.timeless_classics && discoverQuery.data.timeless_classics.length > 0 && (
+              <SectionRow
+                title="Timeless Classics"
+                caption="Always in season"
+                loading={false}
+                tracks={discoverQuery.data.timeless_classics}
+                onPlay={(t) => handlePlayTrack(t, discoverQuery.data.timeless_classics)}
+                keyPrefix="classic"
+              />
+            )}
+          </>
         )}
       </div>
     </div>

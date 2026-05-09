@@ -1,8 +1,11 @@
 import uuid
 from datetime import datetime
+from typing import Any
+
 from sqlalchemy import String, DateTime, Float, Integer, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+
 from app.database import Base
 
 
@@ -40,7 +43,12 @@ class Song(Base):
         String(255), nullable=True, index=True
     )
 
-    # Audio features (Spotify-style 0.0 - 1.0)
+    # ---------------------------------------------------------------------------
+    # Audio features — v1 (Spotify-style, 0.0–1.0)
+    # Kept for backward compatibility. The v1 recommendation path reads these.
+    # The v2 extraction pipeline also writes these so all code works regardless
+    # of which scoring version is active.
+    # ---------------------------------------------------------------------------
     valence: Mapped[float] = mapped_column(Float, default=0.5)
     energy: Mapped[float] = mapped_column(Float, default=0.5)
     danceability: Mapped[float] = mapped_column(Float, default=0.5)
@@ -51,5 +59,52 @@ class Song(Base):
     popularity: Mapped[int] = mapped_column(Integer, default=50)
     release_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # ---------------------------------------------------------------------------
+    # Audio features — v2 (Emotion / Russell circumplex)
+    # Added by Alembic revision 0003_v2_emotion_features.
+    # All nullable so existing rows survive without data migration.
+    # ---------------------------------------------------------------------------
+
+    # Russell circumplex coordinate (valence is shared with v1 column above)
+    arousal: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Distance from circumplex centre (0.5, 0.5), normalised to [0, 1]
+    intensity: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Ekman emotion classification
+    dominant_emotion: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, index=True
+    )
+    # JSONB: {joy: 0.82, sadness: 0.03, anger: 0.01, …} — 7 Ekman emotions
+    emotion_probs: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    # JSONB: {Electric: 0.91, Weightless: 0.34, …} — 10 UI moods
+    mood_scores: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
+    # Librosa-extracted audio features (cleaner names than the v1 Spotify ones)
+    tempo_bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    energy_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    acousticness_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    danceability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Essentia ML classifier probabilities (all in [0, 1])
+    ml_mood_happy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ml_mood_sad: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ml_mood_relaxed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ml_mood_aggressive: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Pipeline audit
+    features_extracted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    # 'v1' = heuristic inference from mood tag (legacy)
+    # 'v2' = librosa + optional Essentia pipeline
+    feature_extraction_version: Mapped[str] = mapped_column(
+        String(10), default="v1", index=True
+    )
 
     interactions = relationship("Interaction", back_populates="song", lazy="selectin")

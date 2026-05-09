@@ -82,6 +82,9 @@
   --ring: 210 100% 65%;
 
   --radius: 1rem;
+
+  --nav-height: 80px;
+  --mini-player-height: 64px;
 }
 
 .dark {
@@ -114,6 +117,9 @@
   --border: 230 20% 15%;
   --input: 230 20% 15%;
   --ring: 210 100% 65%;
+
+  --nav-height: 80px;
+  --mini-player-height: 64px;
 }
 
 @layer base {
@@ -121,6 +127,12 @@
     @apply border-border;
   }
 
+  html, body {
+    overflow: hidden;
+    /* Antigravity scroll containment: prevent the underlying page from
+       rubber-banding when a modal / full-screen player is open. */
+    overscroll-behavior: contain;
+  }
   body {
     @apply font-sans antialiased bg-background text-foreground;
     min-height: 100dvh;
@@ -154,4 +166,57 @@
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.pb-safe-nav {
+  padding-bottom: calc(var(--nav-height) + var(--mini-player-height) + env(safe-area-inset-bottom, 1rem) + 1rem);
+}
+
+/* ─── Body scroll lock (iOS Safari compatible) ──────────────────────────────
+   Applied programmatically by useScrollLock hook.
+   The hook stores window.scrollY before locking and restores it on unlock
+   so the page position is preserved when the player / modal closes.      */
+.body-scroll-locked {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+  touch-action: none !important;
+  /* top is set inline by the hook: top: -scrollY */
+}
+
+/* ─── Heart / Save animation ────────────────────────────────────────────────
+   heartPop: quick scale-bounce that fires when the user saves a track.    */
+@keyframes heartPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  70%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+.heart-pop {
+  animation: heartPop 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── Shimmer skeleton (used across all pages) ───────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--card)) 25%,
+    hsl(var(--accent)) 50%,
+    hsl(var(--card)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background: hsl(var(--card));
+  }
 }

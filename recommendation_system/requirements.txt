@@ -1,0 +1,49 @@
+# ============================================================================
+# MoodBeatz Recommendation Service — Python dependencies
+#
+# This file is used by recommendation_system/Dockerfile to install only the
+# packages needed to run the standalone recommendation service.
+# Alembic and migration tooling are intentionally excluded — migrations are
+# owned by the backend service.
+# ============================================================================
+
+# --- Web framework ---
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+gunicorn==21.2.0
+
+# --- Database (async) ---
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
+
+# --- Settings ---
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# --- Auth (Clerk JWKS verification) ---
+python-jose[cryptography]==3.3.0
+httpx==0.26.0
+cachetools==5.3.2
+
+# --- Cache ---
+redis==5.0.1
+fakeredis==2.21.0
+
+# --- ML / recommendation models ---
+torch>=2.2.0
+numpy==1.26.3
+faiss-cpu>=1.8.0
+scikit-learn==1.4.0
+
+# --- Computer vision (feature extraction pipeline) ---
+opencv-python-headless==4.9.0.80
+deepface==0.0.89
+tf-keras==2.16.0
+
+# --- Utilities ---
+aiofiles==23.2.1
+
+# --- Test-only (safe to ship; <5MB total) ---
+pytest==8.0.2
+pytest-asyncio==0.23.5
+respx==0.20.2

@@ -217,7 +217,9 @@ async def youtube_search(
                 title=title,
                 artist=artist,
                 duration=dur,
-                cover_url=f"https://img.youtube.com/vi/{vid}/hqdefault.jpg",
+                # mqdefault.jpg is guaranteed true 16:9 (320×180) — no letterbox bars.
+                # hqdefault.jpg is 480×360 (4:3) and adds black bars on 16:9 content.
+                cover_url=f"https://img.youtube.com/vi/{vid}/mqdefault.jpg",
             )
             for vid, title, artist, dur in raw
         ]

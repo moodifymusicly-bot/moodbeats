@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_home_feed_prefers_last_played_over_for_you_dedupe():
-    from app.services.recommendation_service import get_home_feed
+    from recommendation_system.services.recommendation_service import get_home_feed
 
     uid = uuid.uuid4()
     song = MagicMock()
@@ -23,22 +23,22 @@ async def test_home_feed_prefers_last_played_over_for_you_dedupe():
 
     with (
         patch(
-            "app.services.recommendation_service.count_user_interactions",
+            "recommendation_system.services.recommendation_service.count_user_interactions",
             new_callable=AsyncMock,
             return_value=100,
         ),
         patch(
-            "app.services.recommendation_service.get_for_you_recommendations",
+            "recommendation_system.services.recommendation_service.get_for_you_recommendations",
             new_callable=AsyncMock,
             return_value=(same_for_you, False),
         ),
         patch(
-            "app.services.recommendation_service.get_last_played_songs_cached",
+            "recommendation_system.services.recommendation_service.get_last_played_songs_cached",
             new_callable=AsyncMock,
             return_value=[song],
         ),
         patch(
-            "app.services.recommendation_service.get_most_played_songs_cached",
+            "recommendation_system.services.recommendation_service.get_most_played_songs_cached",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -58,7 +58,7 @@ async def test_home_feed_prefers_last_played_over_for_you_dedupe():
 
 @pytest.mark.asyncio
 async def test_recommend_home_omitted_starter_defaults_to_study():
-    from app.routers import recommendations as rec_router
+    from recommendation_system.routers import recommendations as rec_router
     from app.models.user import User
 
     uid = uuid.uuid4()
@@ -75,7 +75,7 @@ async def test_recommend_home_omitted_starter_defaults_to_study():
     }
 
     with patch(
-        "app.routers.recommendations.get_home_feed",
+        "recommendation_system.routers.recommendations.get_home_feed",
         new_callable=AsyncMock,
         return_value=fake_bundle,
     ) as gh:

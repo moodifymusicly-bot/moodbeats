@@ -8,7 +8,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_recommend_home_calls_get_home_feed():
-    from app.routers import recommendations as rec_router
+    from recommendation_system.routers import recommendations as rec_router
     from app.models.user import User
 
     uid = uuid.uuid4()
@@ -25,7 +25,7 @@ async def test_recommend_home_calls_get_home_feed():
     }
 
     with patch(
-        "app.routers.recommendations.get_home_feed",
+        "recommendation_system.routers.recommendations.get_home_feed",
         new_callable=AsyncMock,
         return_value=fake_bundle,
     ) as gh:

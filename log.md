@@ -1,4 +1,22 @@
-# MoodBeats Work Log
+# MoodBeatz Work Log
+
+## 2026-05-09T08:27 — Recommendation Feed Deduplication
+
+- **Task**: Add a deduplication step to the recommendation pipeline that removes duplicate song versions (remix, live, acoustic, remastered, etc.) from recommendation feeds.
+- **What changed**:
+  - `recommendation_system/services/recommendation_service.py`:
+    - Added `import re` at the top of the file.
+    - Added `_VERSION_SUFFIX_RE` compiled regex pattern that strips `(remix)`, `(live)`, `(acoustic)`, `(remastered)`, `(radio edit)`, `(feat. …)`, `(extended)`, `(instrumental)`, `(official)`, and trailing year tags like `- 2020`.
+    - Added `_normalize_title(title: str) -> str` — pure function using the regex, lowercases and strips the result.
+    - Added `_dedupe_by_normalized_title(rows: list[dict]) -> list[dict]` — groups scored rows by `(normalized_title, artist.lower())`, keeps the first (highest-score) entry per group. Requires input to be pre-sorted descending by score.
+    - Applied `_dedupe_by_normalized_title()` in `get_recommendations()` after `sort()`, before the `[:limit]` slice.
+    - Applied `_dedupe_by_normalized_title()` in `get_for_you_recommendations()` after `sort()`, before the `[:limit]` slice.
+  - `recommendation_system/tests/test_title_deduplication.py` (new file): 24 unit tests covering all regex patterns in `_normalize_title` and all grouping/edge-case behaviour in `_dedupe_by_normalized_title`.
+  - `CHANGELOG.md`: Added user-visible entry under `[Unreleased] — 2026-05-09`.
+- **Why**: The catalog may contain multiple versions of the same song (studio, remix, live, etc.). Each version can score close to the others, causing 2–3 slots out of a 20-song feed to be taken by variations of one song, which feels repetitive to users.
+- **Decision**: Dedup is applied only to `get_recommendations()` and `get_for_you_recommendations()`. Search endpoints are explicitly excluded — users who search by title should see every available version.
+- **Validation**: `pytest recommendation_system/tests/test_title_deduplication.py` — 24 passed, 0 failed.
+- **Next action**: Deploy to VPS; no DB migration or env changes required.
 
 ## [2026-04-26] Architectural Explanation: Recommendation API
 - **Task**: Answer user query regarding the feasibility and performance impact of decoupling the recommendation system into an API.
@@ -44,8 +62,8 @@
 - **Task**: Logo click → landing page from any view; NAV-1 `useTransition` for nav buttons; production-readiness audit; verify recommendation system per-user uniqueness.
 - **What changed**:
   - **`NavBar.tsx`**: Added `onHome` prop. Logo is now a `<button>` that calls `onHome()` via `useTransition`. Sign-in button also wrapped in `useTransition`. Sub-label shows "Loading…" while transition is pending. Added `id="nav-logo-btn"` and `id="nav-signin-btn"` for testability. Note: `NavBar.tsx` is defined but not yet directly rendered (home top-bar is inline in `page.tsx`); changes are ready for when it's wired in.
-  - **`page.tsx`** — Home top bar: When no mood is selected, the "MoodBeats" title is now a `<button id="home-logo-btn">` that navigates to `setView('landing')` via `resetHomeState()`.
-  - **`page.tsx`** — Playing view header: The "MoodBeats // Media" centre title is now `<button id="playing-logo-btn">` that returns to landing.
+  - **`page.tsx`** — Home top bar: When no mood is selected, the "MoodBeatz" title is now a `<button id="home-logo-btn">` that navigates to `setView('landing')` via `resetHomeState()`.
+  - **`page.tsx`** — Playing view header: The "MoodBeatz // Media" centre title is now `<button id="playing-logo-btn">` that returns to landing.
   - **`page.tsx`** — `useTransition` import added. `BottomNav` component now uses `useTransition` (`startNavTransition`) for all tab-switch `onNav()` calls. Nav buttons dim while transition is pending. Added `id="nav-{tab}-btn"` to all bottom nav items.
   - **`docs/production-readiness.md`**: New audit document with: recommendation system analysis, critical P-1..P-5 blockers, S-1..S-9 should-fix items, N-1..N-9 nice-to-haves, and concrete `bash` remediation commands.
 - **Why**: Clicking the logo to go home is standard UX expectation. `useTransition` prevents the UI from freezing on tab switch (React 18 concurrent feature). Production readiness gaps would cause silent auth failures, full table scans at scale, and non-optimised frontend builds.
@@ -65,7 +83,7 @@
   - **Backend**: Added `GET /api/recommendations/discover` endpoint with `fresh_picks`, `timeless_classics`, and `trending` sections. Works for both anonymous and authenticated users. Categorizes songs by release_date freshness and popularity. Added `DiscoverResponse` schema and `get_discover_feed` service.
   - **Frontend**: Added discover feed (Fresh Picks, Timeless Classics, Trending Now) for ALL users on home view. Added personalized sections (Recommended for You, Recently Played, Most Played) with prominent icons, titles, and subtitles. Fixed `resetHomeState` clearing `homeFeed` and `discoverFeed` state. Increased label sizes from 9px to 14px bold with descriptive subtitles.
 - **Why**: Users couldn't find recommendation sections; labels were nearly invisible (9px); anonymous users saw no recommendations at all; no new vs old music distinction existed; navigating away from home destroyed the cached feed data.
-- **Next action**: Deploy to VPS via `git pull /tmp/moodbeats-deploy.bundle main && docker compose up -d --build`.
+- **Next action**: Deploy to VPS via `git pull /tmp/moodbeatz-deploy.bundle main && docker compose up -d --build`.
 
 ## 2026-04-18 (YouTube + recommendations hardening)
 - **Task**: Restore music playback when YouTube Data API key is missing or failing; clarify cold vs personalized recs; keep VPS deploy path working.
@@ -81,7 +99,7 @@
 
 ## 2026-04-18 (deploy — local agent)
 - **Task**: Ship recommendation work to VPS `148.135.138.197`.
-- **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Offline bundle: `releases/moodbeats-deploy.bundle` (gitignored). Added **`scripts/deploy-vps-from-dev.sh`** (scp bundle + `git pull` + `docker compose up -d --build`) and **`scripts/vps-authorize-dev-machine-key.sh`** (print lines to add this dev’s `~/.ssh/id_ed25519.pub` to root `authorized_keys` on the VPS). Automated SSH/scp from the agent still fails (no `ssh-askpass`, key not on server).
+- **What changed**: Committed `feat: home recommendation bundle…` (`2d4ca86`). `git push origin main` failed here (no GitHub SSH key). Offline bundle: `releases/moodbeatz-deploy.bundle` (gitignored). Added **`scripts/deploy-vps-from-dev.sh`** (scp bundle + `git pull` + `docker compose up -d --build`) and **`scripts/vps-authorize-dev-machine-key.sh`** (print lines to add this dev’s `~/.ssh/id_ed25519.pub` to root `authorized_keys` on the VPS). Automated SSH/scp from the agent still fails (no `ssh-askpass`, key not on server).
 - **Next action**: **Option A** — On VPS (password session): run the lines from `bash scripts/vps-authorize-dev-machine-key.sh`, then from dev: `bash scripts/deploy-vps-from-dev.sh` (no password if key works). **Option B** — From any terminal with working `scp`/`ssh`: `bash scripts/deploy-vps-from-dev.sh` and enter the VPS password when prompted. **Option C** — `git push origin main` then on VPS `git pull && docker compose up -d --build`.
 
 ## 2026-04-18
@@ -114,7 +132,7 @@
 - **Next action**: User opens cloud firewall 80/443, SSH from laptop, clone repo, run bootstrap with `moodbeatz.18.209.209.79.nip.io`.
 
 ## 2026-04-15 (local server / storage)
-- **Task**: Local machine as full MoodBeats server (Postgres + Redis + compose).
+- **Task**: Local machine as full MoodBeatz server (Postgres + Redis + compose).
 - **What changed**: `docker-compose.yml` — Redis AOF + named volume `redisdata` for durable cache/session-style data; `scripts/start-local-stack.sh` — checks Docker socket, `docker compose up --build -d`, polls `/api/health`; `npm ci` in `frontend` for host-side Node deps.
 - **Why**: Cursor environment cannot `sudo systemctl start docker`; Docker was installed but `docker.service` inactive, so compose could not run until the user enables the daemon.
 - **Next action**: User runs `sudo systemctl enable --now docker`, adds self to `docker` group if needed, then `./scripts/start-local-stack.sh`.
@@ -150,7 +168,7 @@
 - **Task**: Confirm VPS app health and site behavior.
 - **What changed**: Added `scripts/vps-health-check.sh` (Docker/Caddy/local API+frontend + optional public HTTPS curl). Cursor environment cannot reach `148.135.138.197` (connection timeout) and SSH returns `Permission denied (publickey)` — verification must run on the user’s SSH session or laptop with keys.
 - **Why**: Operational checklist so one command on the VPS validates the full stack.
-- **Next action**: On the VPS, run `bash /opt/moodbeats/scripts/vps-health-check.sh` after `git pull` or `scp` the new script; fix any reported FAIL (compose up, Caddy, `.env`).
+- **Next action**: On the VPS, run `bash /opt/moodbeatz/scripts/vps-health-check.sh` after `git pull` or `scp` the new script; fix any reported FAIL (compose up, Caddy, `.env`).
 
 ## 2026-04-18 (site not loading — diagnosis)
 - **Task**: Explain blank/unreachable site and give fix path.
@@ -158,10 +176,10 @@
 - **Why**: Separates “app broken on host” vs “internet cannot reach host.”
 - **Next action**: User runs diagnose script on VPS; if local curls OK, open TCP 80+443 on provider panel; then `systemctl restart caddy` and `docker compose up -d` as needed.
 
-## 2026-04-18 (VPS `/moodbeats` + Caddy)
-- **Task**: Create `/moodbeats`, deploy stack, fix “no such directory” and site not loading.
-- **What changed**: On Arch VPS `148.135.138.197`: installed `git`, `docker`, `docker-compose`, `caddy`; cloned `https://github.com/moodifymusicly-bot/moodbeats.git` to **`/moodbeats`**; symlink **`/opt/moodbeats` → `/moodbeats`**; copied production `.env` from dev machine; set `NEXT_PUBLIC_API_URL` / `ALLOWED_ORIGINS` / `ENVIRONMENT`; ran `docker compose up -d --build`. Caddy was **inactive** with default config — wrote site block (API → `8001`, frontend → host port **`3001`** to match published `docker-compose` on that clone), **`systemctl enable --now caddy`**. Added `scripts/vps-configure-caddy.sh` for repeatability.
-- **Why**: `/opt` was empty; previous scripts assumed `/opt/moodbeats`. Public site failed because nothing listened on 80/443 for the app.
+## 2026-04-18 (VPS `/moodbeatz` + Caddy)
+- **Task**: Create `/moodbeatz`, deploy stack, fix “no such directory” and site not loading.
+- **What changed**: On Arch VPS `148.135.138.197`: installed `git`, `docker`, `docker-compose`, `caddy`; cloned `https://github.com/moodifymusicly-bot/moodbeatz.git` to **`/moodbeatz`**; symlink **`/opt/moodbeatz` → `/moodbeatz`**; copied production `.env` from dev machine; set `NEXT_PUBLIC_API_URL` / `ALLOWED_ORIGINS` / `ENVIRONMENT`; ran `docker compose up -d --build`. Caddy was **inactive** with default config — wrote site block (API → `8001`, frontend → host port **`3001`** to match published `docker-compose` on that clone), **`systemctl enable --now caddy`**. Added `scripts/vps-configure-caddy.sh` for repeatability.
+- **Why**: `/opt` was empty; previous scripts assumed `/opt/moodbeatz`. Public site failed because nothing listened on 80/443 for the app.
 - **Validation**: `https://148.135.138.197.nip.io/api/health` and `/` return 200 from external curl after Caddy fix.
 - **Security**: Root password was shared in chat — user must **change SSH password** and prefer SSH keys; never commit credentials.
 
@@ -173,13 +191,13 @@
 
 ## 2026-04-18 (push to VPS — agent limitation)
 - **Task**: Deploy latest `main` to VPS `148.135.138.197`.
-- **What changed**: `git push origin main` failed here with **Permission denied (publickey)** (no GitHub credentials on this host). SSH to the VPS failed with **Permission denied (publickey,password)** (no VPS key/password in this environment). Recreated **`/tmp/moodbeats-main.bundle`** (full history through current `main`) for offline transfer.
+- **What changed**: `git push origin main` failed here with **Permission denied (publickey)** (no GitHub credentials on this host). SSH to the VPS failed with **Permission denied (publickey,password)** (no VPS key/password in this environment). Recreated **`/tmp/moodbeatz-main.bundle`** (full history through current `main`) for offline transfer.
 - **Why**: Deployment requires credentials available only on the user’s machine.
-- **Next action**: From a machine with GitHub access: `git push origin main`. On the VPS: `cd /moodbeats && git pull origin main && docker compose up -d --build`. **Or** `scp /tmp/moodbeats-main.bundle root@148.135.138.197:/tmp/` then on VPS: `bash scripts/vps-pull-bundle-rebuild.sh /tmp/moodbeats-main.bundle` (script must exist in repo on server, or copy it first).
+- **Next action**: From a machine with GitHub access: `git push origin main`. On the VPS: `cd /moodbeatz && git pull origin main && docker compose up -d --build`. **Or** `scp /tmp/moodbeatz-main.bundle root@148.135.138.197:/tmp/` then on VPS: `bash scripts/vps-pull-bundle-rebuild.sh /tmp/moodbeatz-main.bundle` (script must exist in repo on server, or copy it first).
 
 ## 2026-04-18 (VPS deploy — bundle + DB + Caddy)
 - **Task**: Deploy current `main` to `148.135.138.197` and verify HTTPS.
-- **What changed**: Copied `moodbeats-main.bundle` to VPS, `git pull` fast-forward to `4223082`. `docker compose up --build` initially timed out locally (600s); completed on a follow-up SSH. Backend workers crashed with `InvalidPasswordError` for Postgres — existing `moodbeats_pgdata` was initialized with a different password than `/moodbeats/.env`; **removed volume `moodbeats_pgdata`** and brought the stack up so DB matches `.env` (seed data re-applied on startup). Caddy still proxied the frontend to **3001** while compose published **3000** → **502 on `/`**; updated `/etc/caddy/Caddyfile` to `127.0.0.1:3000` and restarted Caddy.
+- **What changed**: Copied `moodbeatz-main.bundle` to VPS, `git pull` fast-forward to `4223082`. `docker compose up --build` initially timed out locally (600s); completed on a follow-up SSH. Backend workers crashed with `InvalidPasswordError` for Postgres — existing `moodbeatz_pgdata` was initialized with a different password than `/moodbeatz/.env`; **removed volume `moodbeatz_pgdata`** and brought the stack up so DB matches `.env` (seed data re-applied on startup). Caddy still proxied the frontend to **3001** while compose published **3000** → **502 on `/`**; updated `/etc/caddy/Caddyfile` to `127.0.0.1:3000` and restarted Caddy.
 - **Why**: GitHub `main` was behind local commits; password auth SSH worked from agent with `pexpect`; DB volume mismatch is a common failure mode after `.env` changes.
 - **Validation**: `https://148.135.138.197.nip.io/api/health` and `/` return 200.
 - **Next action**: Push `git push origin main` when GitHub SSH is available so the VPS can use `git pull` instead of bundles. **Rotate the VPS root password** (it was used in chat for this session).
@@ -238,7 +256,7 @@
 - Spinner compacted (smaller size, less padding)
 
 ### VPS deployment action required:
-- Run `bash /root/MoodBeats/scripts/vps-fix-and-redeploy.sh` from SSH session
+- Run `bash /root/MoodBeatz/scripts/vps-fix-and-redeploy.sh` from SSH session
 - This patches `.env` to set correct `NEXT_PUBLIC_API_URL`, `ALLOWED_ORIGINS`, rebuilds Docker stack, and runs health checks
 
 ### Status: Done (local), VPS redeploy pending user action
@@ -248,7 +266,7 @@
 - **Task**: Fix production URL/env drift causing frontend to call localhost (`NEXT_PUBLIC_API_URL=http://127.0.0.1:8001`) after deploy.
 - **What changed**:
   - Updated `scripts/deploy-vps-from-dev.sh` to support optional `PUBLIC_HOST` and auto-patch VPS `.env` (`NEXT_PUBLIC_API_URL`, `ALLOWED_ORIGINS`) before rebuilding.
-  - Hardened `scripts/vps-fix-and-redeploy.sh`: repo auto-detection across `/moodbeats`, `/opt/moodbeats`, `/root/MoodBeats`; improved Caddy host detection; standardized `ALLOWED_ORIGINS` to the active HTTPS host.
+  - Hardened `scripts/vps-fix-and-redeploy.sh`: repo auto-detection across `/moodbeatz`, `/opt/moodbeatz`, `/root/MoodBeatz`; improved Caddy host detection; standardized `ALLOWED_ORIGINS` to the active HTTPS host.
   - Updated `implementation.md` deployment section with the new guardrail.
 - **Why**: Rebuilds were succeeding but frontend remained miswired to localhost because build-time env values were stale on VPS.
 - **Next action**: Deploy with `PUBLIC_HOST=148.135.138.197.nip.io` and verify `.env` + browser network calls.
@@ -456,7 +474,7 @@
 - The SearchHistory model uses only existing SQLAlchemy primitives
 
 **Deploy command** (unchanged):
-  cd /home/chintan/MoodBeats && PUBLIC_HOST=148.135.138.197.nip.io VPS=root@148.135.138.197 REMOTE_DIR=/opt/moodbeats bash scripts/vps-sync-deploy.sh
+  cd /home/chintan/MoodBeatz && PUBLIC_HOST=148.135.138.197.nip.io VPS=root@148.135.138.197 REMOTE_DIR=/opt/moodbeatz bash scripts/vps-sync-deploy.sh
 
 ---
 ## 2026-04-26T20:14 — Player: Transport Controls Hidden by Long Title (Bug Fix)
@@ -669,7 +687,7 @@ was the canonical failure mode.
 - `frontend/src/pages/MoodPlaylist.tsx` — Full infinite scroll: `extendedPlaylist` state, `IntersectionObserver` on sentinel div, `fetchMore()` callback, loading spinner row.
 
 **Infrastructure**
-- `docker-compose.yml` — Added `faissdata` named volume mounted at `/var/moodbeats/faiss` on recommendation-service.
+- `docker-compose.yml` — Added `faissdata` named volume mounted at `/var/moodbeatz/faiss` on recommendation-service.
 
 ### Decisions
 - IVFFlat nlist = clamp(4, √N, 256). nprobe = nlist/4. This gives >99% recall for typical music catalog sizes.
@@ -688,7 +706,7 @@ was the canonical failure mode.
 - `scripts/vps-sync-deploy.sh` — full rewrite of the remote-action block:
   - Confirmed `recommendation_system/` is included in rsync (it was, no change needed)
   - Added: auto-inject `RECO_SERVICE_URL=http://recommendation-service:8002` into `.env` if missing
-  - Added: wait loop for `moodbeats-recommendation` container health (90s timeout)
+  - Added: wait loop for `moodbeatz-recommendation` container health (90s timeout)
   - Added: env key audit against `.env.example` template (PASS/WARN/MISSING per key)
   - Added: recommendation service health check `GET /api/health` on port 8002
   - Added: inter-service connectivity check `GET /api/moods` and `/api/recommendations/moods`
@@ -739,11 +757,11 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 4. Frontend container recreated with new compose config
 
 **Final state (all verified):**
-- moodbeats-backend: ✅ healthy
-- moodbeats-recommendation: ✅ healthy
-- moodbeats-frontend: ✅ healthy (was unhealthy before)
-- moodbeats-db: ✅ healthy
-- moodbeats-redis: ✅ healthy
+- moodbeatz-backend: ✅ healthy
+- moodbeatz-recommendation: ✅ healthy
+- moodbeatz-frontend: ✅ healthy (was unhealthy before)
+- moodbeatz-db: ✅ healthy
+- moodbeatz-redis: ✅ healthy
 - https://148.135.138.197.nip.io/ — ✅ serving frontend
 - https://148.135.138.197.nip.io/api/health — ✅ {"status":"healthy"}
 - https://148.135.138.197.nip.io/api/recommendations/discover — ✅ returns songs (anon)
@@ -808,10 +826,10 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 - `IntersectionObserver` on `sentinelRef` div at the bottom of the suggestions list — triggers `fetchSuggested()` when scrolled into view, giving infinite scroll for suggestions.
 - Queue panel header now shows song count and "Refilling…" text when `isLoadingMore` is true.
 - `ListMusic` button gets a pulsing primary dot when `isLoadingMore` is true (silent background refill indicator).
-- **"Recommended for you" section**: renders below the queue list with a `Sparkles` label, individual `+` (Plus) buttons that dispatch `moodbeats:add-to-queue` custom event, and ✓ checkmark once added/already in queue.
+- **"Recommended for you" section**: renders below the queue list with a `Sparkles` label, individual `+` (Plus) buttons that dispatch `moodbeatz:add-to-queue` custom event, and ✓ checkmark once added/already in queue.
 
 **`frontend/src/lib/PlayerContext.tsx`**:
-- Added `useEffect` listening on `window` for `moodbeats:add-to-queue` events. Appends the song to both `queue` and `originalQueue` (deduplicated) — so the song immediately appears in "Up Next" and survives shuffle mode toggling.
+- Added `useEffect` listening on `window` for `moodbeatz:add-to-queue` events. Appends the song to both `queue` and `originalQueue` (deduplicated) — so the song immediately appears in "Up Next" and survives shuffle mode toggling.
 
 ### Verification
 - `npx tsc --noEmit` → 0 errors.
@@ -937,6 +955,30 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 
 ### A4 — Enable v2 Scoring by Default (config.py)
 - `ENABLE_V2_SCORING` default changed from `False` → `True`
+
+---
+## 2026-04-28T21:49 — Perf Fixes: Auth Delay (C1) + Audio Prefetch (C2)
+
+**Task**: Resolve two high-priority audit items (C1, C2).
+
+### C1 — Home page: homeQuery auth delay (Home.tsx)
+- **Root cause**: `homeQuery` was guarded by `enabled: !!isSignedIn`. Clerk initialises `isSignedIn` as `undefined` for one render cycle before settling to `true`/`false`, adding ~200ms before the query could even start. `discoverQuery` had no such gate and fired immediately.
+- **Fix**: Destructure `isLoaded` from `useAuth()` and use `enabled: isAuthLoaded && !!isSignedIn`. Clerk sets `isLoaded` to `true` in the same render tick that `isSignedIn` settles — so the query now starts as soon as auth state is known, parallel with `discoverQuery`.
+- **Files changed**: `frontend/src/pages/Home.tsx`
+
+### C2 — No audio prefetching: gap between songs (PlayerContext.tsx)
+- **Root cause**: `resolveYouTubeId()` was called only when `nextTrack()` fired. For songs without a hardcoded `youtube_id`, this triggered a backend search proxy call (~300-800ms) before playback could start.
+- **Fix**: Added `ytIdCacheRef` (`Map<string, string>`) and `prefetchUpcoming(queue, index)` helper.
+  - `resolveYouTubeId()` checks the cache first (step 1), then `rec.youtube_id` (step 2), then network (step 3). Cache is populated on every resolution so re-visits are free.
+  - `prefetchUpcoming()` fires a 300ms-debounced loop that background-resolves IDs for the next `PREFETCH_LOOKAHEAD=2` songs using fire-and-forget promises.
+  - Called from: `playTrack()` (on play start), `nextTrack()` (after resolving current), `prevTrack()` (after resolving current), `jumpToTrack()` (after resolving jumped-to track).
+- **Files changed**: `frontend/src/lib/PlayerContext.tsx`
+
+### Validation
+- `npm run typecheck` → 0 errors.
+- No regressions. Logic unchanged for cache-miss paths (same network call, same error handling).
+
+**Next action**: Deploy to VPS.
 - `.env` already had `ENABLE_V2_SCORING=true` — this aligns code default with production intent
 - Songs without `arousal` still fall back to v1 via `_compute_mood_score_dispatch()`
 
@@ -975,7 +1017,7 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 **Problem**: 3+ consecutive skips continued serving from the same FAISS candidate set with no escape mechanism.
 **Fix**:
 - Added `consecutiveSkipsRef` (int ref, default 0) and `SKIP_DRIFT_THRESHOLD = 3`.
-- On every manual skip: increment ref; if threshold reached → dispatch `moodbeats:skip-drift` event, call `fetchMoreForQueue(true)` (force=true bypasses the 5-song watermark), reset counter.
+- On every manual skip: increment ref; if threshold reached → dispatch `moodbeatz:skip-drift` event, call `fetchMoreForQueue(true)` (force=true bypasses the 5-song watermark), reset counter.
 - Auto-advance (song ended naturally) resets the counter to 0.
 - `prevTrack()` also resets the counter (deliberate navigation ≠ drift).
 - `fetchMoreForQueue()` gained an optional `force` parameter.
@@ -996,3 +1038,20 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 ### Next Action
 - Deploy: `bash scripts/vps-sync-deploy.sh`
 - Monitor: look for `[PlayerContext] Skip drift detected` in browser console after 3+ skips
+
+---
+## 2026-05-09T09:38 — Rebranding: MoodBeats → MoodBeatz
+
+**Task**: Full project rebranding — rename every occurrence of "MoodBeats" to "MoodBeatz".
+
+**What changed**:
+- File content: 65 files updated via `sed -i` (case-sensitive for all 3 variants: MoodBeats, moodbeats, MOODBEATS).
+- Folder renamed: `UINew/artifacts/moodbeats/` → `UINew/artifacts/moodbeatz/`
+- Scope: frontend (HTML, TSX, JSON, CSS), backend (Python, config), recommendation_system (Python, docs), scripts (shell), docs (md), UINew archive.
+- Excluded: `.git`, `venv`, `.venv`, `__pycache__`, `node_modules`, `dist` (built bundle — rebuild required).
+
+**Why**: Brand name change from MoodBeats to MoodBeatz.
+
+**Verification**: `grep -ri "moodbeats"` across all source files returned zero results after replacement.
+
+**Next action**: Rebuild frontend (`npm run build`) to regenerate `dist/` with updated bundle. The current `dist/` still contains the old name — it must be rebuilt before deploying.

@@ -1,4 +1,4 @@
-"""Standalone FastAPI application for the MoodBeats Recommendation Service.
+"""Standalone FastAPI application for the MoodBeatz Recommendation Service.
 
 This module is the entry point when the recommendation_system package runs as
 an **independent process** (docker-compose service ``recommendation-service``
@@ -23,6 +23,7 @@ monolith backend service at startup.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -35,7 +36,7 @@ from pathlib import Path
 # that ``from app.models.*`` (ORM models) and ``from recommendation_system.*``
 # both resolve correctly.
 # ---------------------------------------------------------------------------
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]  # .../MoodBeats
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]  # .../MoodBeatz
 _BACKEND_DIR = _PROJECT_ROOT / "backend"
 for _path in (str(_PROJECT_ROOT), str(_BACKEND_DIR)):
     if _path not in sys.path:
@@ -51,6 +52,10 @@ from recommendation_system.config import get_reco_settings
 from recommendation_system.database import _async_session as async_session
 from recommendation_system.ml.faiss_manager import faiss_manager
 from recommendation_system.routers import recommendations
+from recommendation_system.services.song_ingestion_worker import (
+    YouTubeClient,
+    ingest_songs_for_mood,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_reco_settings()
@@ -91,9 +96,65 @@ async def lifespan(app: FastAPI):
             "FAISS warm-start failed; recommendations will fall back to O(N) scan."
         )
 
+    # Song ingestion: kick off a background task to pull fresh songs from YouTube
+    # for every configured mood.  This is the only reliable trigger since Celery
+    # and APScheduler are not installed in this service image.  The 24-hour guard
+    # key in the ingestion worker prevents duplicate runs within the same day.
+    if settings.YOUTUBE_API_KEY:
+        asyncio.create_task(
+            _startup_ingest_all_moods(),
+            name="startup_ingest_all_moods",
+        )
+        logger.info("Song ingestion background task scheduled for %d moods.", len(settings.MOODS))
+    else:
+        logger.warning(
+            "YOUTUBE_API_KEY is not set — startup song ingestion skipped. "
+            "New songs will not be fetched from YouTube until the key is configured."
+        )
+
     yield
 
     await cache.close()
+
+
+async def _startup_ingest_all_moods() -> None:
+    """Fire-and-forget background task: ingest songs for every configured mood.
+
+    Called once per process start from the FastAPI lifespan.  A shared
+    YouTubeClient instance is passed across all mood ingestion calls so that
+    quota checks use the same Redis counter (one atomic view of daily spend).
+
+    The 24-hour guard key inside ``_run_ingestion_for_mood`` prevents duplicate
+    ingestion runs when the container restarts frequently (e.g. rolling deploys).
+    """
+    logger.info("[StartupIngest] Beginning ingestion run for %d moods.", len(settings.MOODS))
+    yt = YouTubeClient()
+    try:
+        for mood in settings.MOODS:
+            try:
+                async with async_session() as db:
+                    result = await ingest_songs_for_mood(db, mood, yt)
+                    await db.commit()
+                if result.get("cached"):
+                    logger.info(
+                        "[StartupIngest] mood='%s' guard key hit — skipping (already ingested today).",
+                        mood,
+                    )
+                elif result.get("error"):
+                    logger.warning(
+                        "[StartupIngest] mood='%s' ingestion error: %s",
+                        mood, result["error"],
+                    )
+                else:
+                    logger.info(
+                        "[StartupIngest] mood='%s' inserted=%d skipped=%d",
+                        mood, result.get("inserted", 0), result.get("skipped", 0),
+                    )
+            except Exception:
+                logger.exception("[StartupIngest] Unexpected error for mood '%s'.", mood)
+    finally:
+        await yt.close()
+    logger.info("[StartupIngest] Ingestion run complete.")
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +162,11 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="MoodBeats Recommendation Service",
+    title="MoodBeatz Recommendation Service",
     description=(
         "Standalone AI-powered mood-based music recommendation engine. "
         "Provides personalized track recommendations, discovery feeds, and "
-        "home bundles. Compatible with the MoodBeats monolith API contract."
+        "home bundles. Compatible with the MoodBeatz monolith API contract."
     ),
     version="2.0.0",
     lifespan=lifespan,
@@ -160,7 +221,7 @@ app.include_router(recommendations.router)
 @app.get("/", tags=["Meta"])
 async def root():
     return {
-        "service": "MoodBeats Recommendation Service",
+        "service": "MoodBeatz Recommendation Service",
         "version": "2.0.0",
         "status": "running",
         "docs": "/docs",

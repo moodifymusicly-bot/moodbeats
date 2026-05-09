@@ -27,6 +27,7 @@ from app.models import (  # noqa: F401
     Like,
     Playlist,
     PlaylistSong,
+    SearchHistory,  # Phase 5 — recently searched (added 2026-04-26)
 )
 
 settings = get_settings()

@@ -1,4 +1,4 @@
-"""Singleton FAISS manager for the MoodBeats recommendation service.
+"""Singleton FAISS manager for the MoodBeatz recommendation service.
 
 Responsibilities
 ----------------
@@ -107,7 +107,7 @@ class FaissManager:
         self._lock = asyncio.Lock()
         self._settings = None  # loaded lazily
         self._enabled: bool = True
-        self._index_path: str = "/var/moodbeats/faiss/songs"
+        self._index_path: str = "/var/moodbeatz/faiss/songs"
         self._min_catalog: int = 50
         self._dim: int = 64
 
@@ -125,7 +125,7 @@ class FaissManager:
                 s = get_settings()
             self._settings = s
             self._enabled = getattr(s, "FAISS_ENABLED", True)
-            self._index_path = getattr(s, "FAISS_INDEX_PATH", "/var/moodbeats/faiss/songs")
+            self._index_path = getattr(s, "FAISS_INDEX_PATH", "/var/moodbeatz/faiss/songs")
             self._min_catalog = getattr(s, "FAISS_MIN_CATALOG_SIZE", 50)
             self._dim = getattr(s, "EMBEDDING_DIM", 64)
         return self._settings

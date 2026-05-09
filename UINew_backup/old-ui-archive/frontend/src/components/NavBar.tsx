@@ -47,7 +47,7 @@ export default function NavBar({ user, onAuthClick, onLogout, currentMood, onHom
                     </div>
                     <div>
                         <h1 className="font-display text-sm font-bold tracking-wider uppercase">
-                            MoodBeats
+                            MoodBeatz
                         </h1>
                         <div className="flex items-center gap-1.5">
                             <span

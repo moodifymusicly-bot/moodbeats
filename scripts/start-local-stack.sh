@@ -89,7 +89,7 @@ for i in {1..60}; do
 done
 
 echo ""
-echo "MoodBeats is up:"
+echo "MoodBeatz is up:"
 echo "  Frontend: http://127.0.0.1:3001"
 echo "  API docs:  http://127.0.0.1:8001/docs"
 echo "  Health:    http://127.0.0.1:8001/api/health"
