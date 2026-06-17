@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-PUBLIC_HOST="${PUBLIC_HOST:-148.135.138.197.nip.io}"
+PUBLIC_HOST="${PUBLIC_HOST:-moodbeatz.zocomputer.io}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
 cat >/etc/caddy/Caddyfile <<EOF

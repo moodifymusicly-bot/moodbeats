@@ -36,23 +36,39 @@ _ISO_DURATION_RE = re.compile(
 )
 
 # Keywords that strongly suggest a non-music video.
+# NOTE: "cover" and "karaoke" are intentionally included so user-upload versions
+# that clutter results ahead of official releases are deprioritised.
 _NON_MUSIC_TERMS = frozenset({
     "reaction", "reacts", "reacting", "podcast", "documentary",
     "gameplay", "tutorial", "how to", "full movie", "review",
-    "unboxing", "vlog", "interview", "compilation", "mix",
+    "unboxing", "vlog", "interview", "compilation",
     "episode", "trailer", "teaser", "behind the scenes",
+    "cover", "karaoke",
 })
 
-# Terms that, when absent from the query, trigger a music nudge suffix.
-_MUSIC_HINTS = frozenset({"music", "song", "audio", "official", "lyrics", "remix", "cover"})
+# Terms that, when already present, mean the query is already music-targeted.
+_MUSIC_HINTS = frozenset({"music", "song", "audio", "official", "lyrics", "remix"})
+
+# Quality suffixes tried in order; we pick the first one that won't duplicate
+# an existing term already in the query.
+_MUSIC_SUFFIXES = ("official audio", "official music video")
 
 
 def _augment_query(q: str) -> str:
-    """Append a music-specific suffix when the query has no music keywords."""
+    """Append a quality suffix to bias results toward official uploads.
+
+    Suffixes tried: "official audio" then "official music video".
+    We append the first suffix whose words are not already in the query.
+    When the query already contains music-targeting keywords (e.g. the user
+    explicitly searched for "official video") we leave it unchanged.
+    """
     lower = q.lower()
     if any(h in lower for h in _MUSIC_HINTS):
-        return q  # already music-targeted
-    return f"{q} official audio"
+        return q  # already targeted – don't double-append
+    for suffix in _MUSIC_SUFFIXES:
+        if suffix not in lower:
+            return f"{q} {suffix}"
+    return q  # all suffixes already present (very unlikely)
 
 
 def _is_likely_music(item: "YouTubeSearchItem") -> bool:
@@ -109,19 +125,24 @@ def _cache_key(q: str, limit: int) -> str:
 
 async def _fetch_youtube(q: str, limit: int) -> list[YouTubeSearchItem]:
     async with httpx.AsyncClient(timeout=8.0) as client:
-        search_resp = await client.get(
-            _YT_SEARCH_URL,
-            params={
-                "part": "snippet",
-                "q": _augment_query(q),  # BUG-3: music-nudge the query
-                "type": "video",
-                "videoCategoryId": "10",  # Music
-                "maxResults": min(max(1, limit + 5), 25),  # fetch a few extra to cover filtered-out items
-                "key": settings.YOUTUBE_API_KEY,
-            },
+        augmented_q = _augment_query(q)
+        search_params = {
+            "part": "snippet",
+            "q": augmented_q,
+            "type": "video",
+            "videoCategoryId": "10",  # Music category
+            "order": "relevance",
+            "maxResults": min(max(1, limit + 8), 25),  # extra headroom for post-filter
+            "key": settings.YOUTUBE_API_KEY,
+        }
+        logger.debug(
+            "[YouTube] Searching API — q=%r augmented=%r params=%s",
+            q, augmented_q, {k: v for k, v in search_params.items() if k != "key"},
         )
+        search_resp = await client.get(_YT_SEARCH_URL, params=search_params)
         search_resp.raise_for_status()
         search_data = search_resp.json()
+        logger.debug("[YouTube] Raw API response item count: %d", len(search_data.get("items", [])))
 
         items = search_data.get("items", [])
         video_ids = [i["id"]["videoId"] for i in items if i.get("id", {}).get("videoId")]
@@ -179,14 +200,26 @@ async def youtube_search(
     key = _cache_key(q, limit)
     cached_blob = await cache.get_json(key)
     if cached_blob:
-        fb = False
-        if isinstance(cached_blob, list) and cached_blob and isinstance(cached_blob[0], dict):
-            fb = bool(cached_blob[0].get("fallback"))
-        items = [
-            YouTubeSearchItem(**{k: v for k, v in i.items() if k != "fallback"})
-            for i in cached_blob
-        ]
-        return YouTubeSearchResponse(query=q, items=items, cached=True, fallback=fb)
+        # Only serve the cache when it contains real API results.
+        # If the cached entry is a fallback result (API was unavailable when it
+        # was stored), bypass the cache so we retry the live API now that the
+        # key may be healthy again.
+        is_cached_fallback = (
+            isinstance(cached_blob, list)
+            and cached_blob
+            and isinstance(cached_blob[0], dict)
+            and bool(cached_blob[0].get("fallback"))
+        )
+        if not is_cached_fallback:
+            items = [
+                YouTubeSearchItem(**{k: v for k, v in i.items() if k != "fallback"})
+                for i in cached_blob
+            ]
+            logger.debug("[YouTube] Cache HIT for q=%r (%d items)", q, len(items))
+            return YouTubeSearchResponse(query=q, items=items, cached=True, fallback=False)
+        # Stale fallback in cache — delete it and fall through to a live call.
+        logger.info("[YouTube] Evicting stale fallback cache entry for q=%r", q)
+        await cache.delete(key)
 
     items: list[YouTubeSearchItem] = []
     used_fallback = False

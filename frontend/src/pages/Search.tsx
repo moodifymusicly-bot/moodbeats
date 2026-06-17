@@ -212,38 +212,82 @@ export default function Search() {
           </div>
         )}
 
-        {!isLoading && filteredTracks.map((track, i) => (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            key={track.external_id}
-            onClick={() => handlePlayTrack(track)}
-            className="flex items-center gap-4 p-3 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group relative"
-          >
-            {/* Thumbnail — Phase 2: object-cover + normalised URL */}
-            <div className="w-14 h-14 rounded-xl overflow-hidden flex-none relative" style={{ aspectRatio: "1 / 1" }}>
-              <img
-                src={normalizeYouTubeThumbnail(track.cover_url) || ""}
-                alt={track.title}
-                className="w-full h-full object-cover"
-              />
-              {/* Heart overlay on search row thumbnail */}
-              <HeartButton
-                songId={track.external_id}
-                mood={activeMood}
-                variant="overlay"
-                size={13}
-                className="absolute top-0.5 right-0.5 w-8 h-8"
-              />
-            </div>
+        {/* Fallback indicator — shown when the backend served curated data */}
+        {!isLoading && searchResults?.fallback && filteredTracks.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400/80 text-xs font-medium mb-1">
+            <span>⚠</span>
+            <span>Showing curated picks — live search temporarily unavailable</span>
+          </div>
+        )}
 
-            <div className="flex-1 min-w-0">
-              <h3 className="font-medium text-primary-foreground truncate">{track.title}</h3>
-              <p className="text-sm text-muted-foreground font-light truncate">{track.artist}</p>
-            </div>
-          </motion.div>
-        ))}
+        {!isLoading && filteredTracks.length > 0 && (
+          <>
+            {/* ── Best Match (top result) — displayed prominently ── */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              onClick={() => handlePlayTrack(filteredTracks[0])}
+              className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer group relative"
+            >
+              <div className="w-20 h-20 rounded-xl overflow-hidden flex-none relative shadow-lg" style={{ aspectRatio: "1 / 1" }}>
+                <img
+                  src={normalizeYouTubeThumbnail(filteredTracks[0].cover_url) || ""}
+                  alt={filteredTracks[0].title}
+                  className="w-full h-full object-cover"
+                />
+                <HeartButton
+                  songId={filteredTracks[0].external_id}
+                  mood={activeMood}
+                  variant="overlay"
+                  size={14}
+                  className="absolute top-1 right-1 w-8 h-8"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70 mb-0.5">Best Match</p>
+                <h3 className="font-semibold text-base text-primary-foreground leading-snug mb-0.5 line-clamp-2">{filteredTracks[0].title}</h3>
+                <p className="text-sm text-muted-foreground font-light truncate">{filteredTracks[0].artist}</p>
+              </div>
+            </motion.div>
+
+            {/* ── Alternatives ── */}
+            {filteredTracks.length > 1 && (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 px-1 pt-2">Alternatives</p>
+                {filteredTracks.slice(1).map((track, i) => (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 + 0.1 }}
+                    key={track.external_id}
+                    onClick={() => handlePlayTrack(track)}
+                    className="flex items-center gap-4 p-3 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group relative"
+                  >
+                    <div className="w-14 h-14 rounded-xl overflow-hidden flex-none relative" style={{ aspectRatio: "1 / 1" }}>
+                      <img
+                        src={normalizeYouTubeThumbnail(track.cover_url) || ""}
+                        alt={track.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <HeartButton
+                        songId={track.external_id}
+                        mood={activeMood}
+                        variant="overlay"
+                        size={13}
+                        className="absolute top-0.5 right-0.5 w-8 h-8"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-primary-foreground truncate">{track.title}</h3>
+                      <p className="text-sm text-muted-foreground font-light truncate">{track.artist}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </>
+            )}
+          </>
+        )}
 
         {!isLoading && filteredTracks.length === 0 && submittedQuery.length > 2 && (
           <div className="text-center py-12 text-muted-foreground font-light">

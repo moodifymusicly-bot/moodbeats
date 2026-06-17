@@ -1,6 +1,92 @@
 # MoodBeatz Work Log
 
+## 2026-05-23T00:59 — Fix: Search returning static data + duplicate recommendations
+
+- **Task**: (1) Ensure YouTube search always returns live API results, not cached fallback data. (2) Eliminate duplicate songs from recommendation feeds.
+- **Root cause (search)**: Redis cached fallback entries (written when the API key was previously unset/invalid) were being served indefinitely as if they were valid results. Additionally `order=relevance` was missing from the YouTube Data API v3 call, and `cover`/`karaoke` were missing from the post-filter keyword list.
+- **Root cause (dedup)**: The `get_discover_feed` function did not call `_dedupe_by_normalized_title()` on its subsections. The `_VERSION_SUFFIX_RE` regex also missed `(cover)`, `(karaoke)`, `(reaction)`, `(tutorial)`, and square-bracket variants like `[Remastered]`.
+- **What changed**:
+  - `backend/app/routers/youtube.py`:
+    - Added `order=relevance` to `_fetch_youtube()` params.
+    - Expanded `maxResults` headroom from `limit+5` to `limit+8`.
+    - Added `"cover"` and `"karaoke"` to `_NON_MUSIC_TERMS` filter set.
+    - Removed `"cover"` from `_MUSIC_HINTS` (it should not suppress the official-audio suffix).
+    - Improved `_augment_query()` to try `"official audio"` then `"official music video"` in order.
+    - Added dev-mode `logger.debug` lines that log the raw API response item count.
+    - Cache eviction: stale fallback-flagged cache entries are now deleted at request time so the next search hits the live API.
+  - `recommendation_system/services/recommendation_service.py`:
+    - Extended `_VERSION_SUFFIX_RE` to also strip `(official audio)`, `(official music video)`, `(cover)`, `(karaoke)`, `(reaction)`, `(tutorial)`, and square-bracket variants `[Remastered]` etc.
+    - Applied `_dedupe_by_normalized_title()` to all three subsections of `get_discover_feed` (fresh_picks, timeless_classics, trending) before the `[:limit]` slice.
+  - `frontend/src/pages/Search.tsx`:
+    - Renders the top API result as a prominent "Best Match" card (larger thumbnail, bold title).
+    - Renders remaining results under an "Alternatives" sub-heading.
+    - Shows a yellow inline banner when `searchResults.fallback === true` so users know the live API was unavailable.
+- **Tests**: 13/13 backend tests pass; 168/168 + 1 skipped recommendation tests pass. TypeScript build: 0 errors.
+- **Next action**: Deploy to VPS. Monitor backend logs for `[YouTube] Evicting stale fallback cache entry` to confirm stale entries are being replaced.
+
+## 2026-05-14T02:08 — Native VPS Deployment (Docker not supported)
+
+- **Task**: Deploy MoodBeatz natively on ts4.zocomputer.io after discovering Docker cannot run (Modal container, no iptables/netlink).
+- **Root cause**: VPS is a container (not KVM VM), kernel 4.4.0, `dumb-init` PID 1, no `nf_tables`. Docker requires bridge networking and iptables which are blocked.
+- **What changed**:
+  - Created `scripts/vps-native-bootstrap.sh`: installs PostgreSQL 15, Redis 7, Caddy, creates Python 3.11 venvs, builds frontend, runs alembic migrations, configures supervisord for all 5 services.
+  - Rewrote `scripts/vps-sync-deploy.sh`: replaced Docker Compose flow with native deploy (pip install, npm build, alembic, supervisorctl restart). Uses `cat > script && bash script` pattern to avoid heredoc escaping issues.
+  - Fixed PostgreSQL paths (`/usr/lib/postgresql/15/bin/pg_ctl`).
+  - Fixed `pkill supervisord` → safe `supervisorctl reread/update/restart` (pkill kills the container's init process on Modal).
+- **Partial success on VPS**: PostgreSQL started, DB/user created, 3 alembic migrations applied, Redis started, Python venvs built, frontend built, Caddy/supervisor configured. Container then restarted (wiping state) when `pkill supervisord` was issued.
+- **Blocker**: Container restart wiped SSH authorized_keys. Need to re-authorize key interactively.
+- **Next action**: (1) `bash scripts/vps-authorize-dev-machine-key.sh` (interactive password), (2) run full deploy: `bash scripts/vps-sync-deploy.sh`.
+
+## 2026-05-14T01:42 — Deploy Script: SSH Multiplexing + Docker Preflight + Key Auth Fix
+
+- **Task**: Fix 3 issues in the deploy pipeline: (1) password prompted 4× per deploy, (2) `docker: command not found` on VPS, (3) SSH key auth not automated.
+- **What changed**:
+  - `scripts/vps-sync-deploy.sh`:
+    - Added SSH **ControlMaster** multiplexing (`ControlMaster=auto`, `ControlPath`, `ControlPersist=300`). All SSH/rsync connections in a single deploy session now reuse one authenticated master connection → **only 1 password prompt** (or zero with key auth). Cleanup trap ensures the socket is removed on exit.
+    - Added **remote Docker preflight check** before rsync. If Docker is not installed on the VPS, the script now fails fast with clear remediation instructions (run bootstrap script or manual `apt-get install docker.io`), instead of crashing at line 101 with `bash: docker: command not found`.
+    - Improved SSH verification output: shows port number, hints about `vps-authorize-dev-machine-key.sh`.
+  - `scripts/vps-authorize-dev-machine-key.sh`: Complete rewrite. Now uses `ssh-copy-id` to automatically copy the key to the VPS in one step (was: only printed manual paste instructions). Auto-generates `id_ed25519` if none exists. Verifies passwordless connection after copying.
+- **Why**: Each `ssh`/`rsync` call was opening a fresh TCP+auth handshake. The key script required manual VPS login to paste the key. Docker absence was only detected deep inside the remote heredoc.
+- **Validation**: `bash -n` passes for both scripts.
+- **Next action**: Run `bash scripts/vps-authorize-dev-machine-key.sh` once (enter password one last time), then all future deploys are passwordless. For Docker, SSH into the VPS and run `bash scripts/debian-vps-bootstrap.sh ts4.zocomputer.io`.
+
+## 2026-05-14T01:34 — VPS Migration: 148.135.138.197 → ts4.zocomputer.io:10960
+
+- **Task**: Update all scripts and configs to use the new VPS connection (`ssh -p 10960 root@ts4.zocomputer.io`).
+- **What changed**:
+  - `scripts/vps-sync-deploy.sh`: Default `VPS` → `root@ts4.zocomputer.io`, added `SSH_PORT=10960` variable, added `-p "${SSH_PORT}"` to `SSH_OPTS`, default `PUBLIC_HOST` → `ts4.zocomputer.io`.
+  - `scripts/vps-health-check.sh`: `PUBLIC_HOST` default → `ts4.zocomputer.io`.
+  - `scripts/vps-setup-oneshot.sh`: `PUBLIC_HOST` → `ts4.zocomputer.io`, SCP example uses `-P 10960`, removed stale bare-IP from `ALLOWED_ORIGINS`.
+  - `scripts/vps-configure-caddy.sh`: `PUBLIC_HOST` default → `ts4.zocomputer.io`.
+  - `scripts/vps-authorize-dev-machine-key.sh`: Verification SSH command updated with new host/port.
+  - `frontend/.env.production`: `VITE_API_URL` → `https://ts4.zocomputer.io`.
+  - `.env`: `ALLOWED_ORIGINS` updated — removed old IP/nip.io, added `https://ts4.zocomputer.io`.
+  - `DEPLOY.md`: Fully rewritten with new VPS details.
+- **Verification**: `bash -n scripts/vps-sync-deploy.sh` = SYNTAX OK. SSH to `ts4.zocomputer.io:10960` reaches host (returns `Permission denied` = host reachable, needs key auth — not a timeout like old IP).
+- **Standard deploy command**:
+  ```bash
+  cd /home/chintan/MoodBeats && bash scripts/vps-sync-deploy.sh
+  ```
+- **Next action**: Run deploy command from local terminal (agent env can't reach VPS). The VPS may need `.env` copied if it's a fresh machine: `scp -P 10960 .env root@ts4.zocomputer.io:/opt/moodbeatz/.env`
+
+## 2026-05-14T01:24 — Deploy Script Audit + VPS Sync Improvements
+
+- **Task**: Full audit of all scripts; harden the rsync deploy pipeline; create canonical `DEPLOY.md` reference.
+- **What changed**:
+  - `scripts/vps-sync-deploy.sh`: Added `backend/venv/` (186 MB), `venv/`, `*.pyc`, `*.pyo`, `frontend/dist/`, `UINew_backup/`, `.gemini/` to rsync excludes. Without `backend/venv/`, every deploy was syncing 186 MB of local Python dependencies unnecessarily.
+  - `scripts/vps-health-check.sh`: Added `moodbeatz-recommendation` to container status checks; added recommendation service health check on port 8002 (`GET /api/health`). The health check had zero visibility into the recommendation service.
+  - Created `DEPLOY.md`: Single canonical deploy reference documenting the standard command, all service ports, rsync exclusion rationale, env var reference, useful SSH one-liners, and script inventory.
+  - Both scripts validate clean with `bash -n`.
+- **Why**: The `backend/venv/` exclusion was missing despite a `backend/.venv/` exclude — these are two separate directories (186 MB and 7 GB respectively); syncing either wastes time and bandwidth. The health check was incomplete for a dual-service architecture.
+- **Standard deploy command** (copy-paste ready):
+  ```bash
+  cd /home/chintan/MoodBeats && VPS=root@148.135.138.197 REMOTE_DIR=/opt/moodbeatz PUBLIC_HOST=148.135.138.197.nip.io bash scripts/vps-sync-deploy.sh
+  ```
+- **Validation**: `bash -n` passes for both modified scripts.
+- **Next action**: Run the deploy command when ready to push latest commits to VPS.
+
 ## 2026-05-09T08:27 — Recommendation Feed Deduplication
+
 
 - **Task**: Add a deduplication step to the recommendation pipeline that removes duplicate song versions (remix, live, acoustic, remastered, etc.) from recommendation feeds.
 - **What changed**:
@@ -1055,3 +1141,25 @@ The same was true in `backend/app/main.py` which imported `recommendation_system
 **Verification**: `grep -ri "moodbeats"` across all source files returned zero results after replacement.
 
 **Next action**: Rebuild frontend (`npm run build`) to regenerate `dist/` with updated bundle. The current `dist/` still contains the old name — it must be rebuilt before deploying.
+
+## Session 2026-06-17
+- **Task**: Deploy web app to new Arch Linux VPS (187.127.181.204).
+- **What changed**: Set up passwordless SSH using Python pty script. Installed Miniconda on VPS (Python 3.11) as Arch native Python 3.14 breaks tensorflow. Initialized PostgreSQL and Valkey. Deployed code to `/opt/moodbeatz`. Built frontend for `187.127.181.204.nip.io`. Configured Caddy, Supervisord, and ran Alembic migrations.
+- **Outcome**: Deployment successful. App is accessible via https://187.127.181.204.nip.io
+
+## 2026-06-17T22:41 — Rename VPS directory to moodbeatz
+
+- **Task**: Ensure the VPS uses a `moodbeatz` folder for deployment instead of `moodbeatz.site`.
+- **What changed**: Replaced all instances of `/opt/moodbeatz.site` with `/opt/moodbeatz` across all deployment scripts (`vps-sync-deploy.sh`, `debian-vps-bootstrap.sh`, `vps-health-check.sh`, `DEPLOY.md`, etc.). Also moved the directory on the VPS (if it existed) to `/opt/moodbeatz`.
+- **Why**: The user requested that the app and all files exist in a folder called `moodbeatz` on the VPS and run from there.
+- **Next action**: Continue with any remaining deployment or verification tasks.
+
+## 2026-06-17T23:07 — Fixed VPS Deployment Script Issues
+
+- **Task**: Fix health check failures and supervisor configuration synchronization in deployment script.
+- **What changed**:
+  - Updated `vps-sync-deploy.sh` to expect `"healthy"` instead of `"ok"` for the main backend health check.
+  - Added logic in `vps-sync-deploy.sh` to explicitly sync the `environment=` variables into `/etc/supervisor.d/moodbeatz.ini` so that the correct Redis and Database passwords from `.env.native` are pushed to the services.
+  - Added `systemctl restart caddy` and `systemctl restart valkey` fallbacks in the deploy script to properly handle environments where Caddy and Redis/Valkey run via systemd instead of supervisord.
+- **Why**: The recommendation service was crashing with a Redis authentication failure because the supervisor config was stale and contained the placeholder password `change-me-redis-password`.
+- **Outcome**: Re-ran the deployment script and all services started successfully. All health checks passed.

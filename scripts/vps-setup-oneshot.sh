@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-PUBLIC_HOST="148.135.138.197.nip.io"
+PUBLIC_HOST="moodbeatz.zocomputer.io"
 REPO_URL="https://github.com/moodifymusicly-bot/moodbeatz.git"
 DEST="/opt/moodbeatz"
 API_BASE="https://${PUBLIC_HOST}"
@@ -70,7 +70,7 @@ fi
 
 # --- .env Check -------------------------------------------------------------
 if [[ ! -f "${DEST}/.env" ]]; then
-  err ".env not found at ${DEST}/.env\n\nSCP it from your local machine first:\n  scp /home/chintan/MoodBeatz/.env root@148.135.138.197:${DEST}/.env\n\nThen re-run this script."
+  err ".env not found at ${DEST}/.env\n\nSCP it from your local machine first:\n  scp -P 10960 /home/chintan/MoodBeats/.env root@ts4.zocomputer.io:${DEST}/.env\n\nThen re-run this script."
 fi
 
 log "Loading .env..."
@@ -120,7 +120,7 @@ else
   echo "VITE_CLERK_PUBLISHABLE_KEY=" >> "${FRONTEND_ENV}"
   log "Created ${FRONTEND_ENV} — set VITE_CLERK_PUBLISHABLE_KEY manually if missing."
 fi
-upsert_env ALLOWED_ORIGINS "${API_BASE},https://148.135.138.197"
+upsert_env ALLOWED_ORIGINS "${API_BASE}"
 upsert_env ENVIRONMENT "production"
 
 # Re-source to pick up changes

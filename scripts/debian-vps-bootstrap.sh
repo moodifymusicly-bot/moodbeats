@@ -6,7 +6,7 @@
 #   bash /opt/moodbeatz/scripts/debian-vps-bootstrap.sh <public_hostname> [repo_dir]
 #
 # Example (nip.io — free, automatic DNS + Let's Encrypt):
-#   bash /opt/moodbeatz/scripts/debian-vps-bootstrap.sh 148.135.138.197.nip.io /opt/moodbeatz
+#   bash /opt/moodbeatz/scripts/debian-vps-bootstrap.sh moodbeatz.zocomputer.io /opt/moodbeatz
 #
 # Prerequisites
 #   • Ports 80 and 443 open in your cloud firewall (for ACME HTTP-01 challenge)

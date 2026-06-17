@@ -864,9 +864,20 @@ _VERSION_SUFFIX_RE = re.compile(
         remix|live|acoustic|remastered|radio\s+edit
         |feat\.?[^)]*              # feat. anything
         |extended|instrumental|official
+        |official\s+audio|official\s+(?:music\s+)?video
+        |cover|karaoke|reaction|tutorial
     )
     [^)]*                          # rest of paren content
     \)                             # closing paren
+    |\s*\[                         # OR: square-bracket variants like [Remastered]
+    (?:
+        remix|live|acoustic|remastered|radio\s+edit
+        |feat\.?[^]]*              # feat. anything in brackets
+        |extended|instrumental|official
+        |cover|karaoke
+    )
+    [^]]*
+    \]
     |\s*-\s*\d{4}\s*$             # trailing year tag like " - 2020"
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -1231,6 +1242,14 @@ async def get_discover_feed(
     scored_fresh.sort(key=lambda x: x["score"], reverse=True)
     scored_classic.sort(key=lambda x: x["score"], reverse=True)
     scored_trending.sort(key=lambda x: x["score"], reverse=True)
+
+    # Deduplicate each subsection by normalised title+artist so that multiple
+    # versions of the same track (e.g. remastered, live) don't fill multiple
+    # slots. Each subsection is deduped independently; cross-section dedup
+    # below then removes any song that appears in more than one section.
+    scored_fresh = _dedupe_by_normalized_title(scored_fresh)
+    scored_classic = _dedupe_by_normalized_title(scored_classic)
+    scored_trending = _dedupe_by_normalized_title(scored_trending)
 
     fresh_picks = scored_fresh[:limit]
     timeless_classics = scored_classic[:limit]

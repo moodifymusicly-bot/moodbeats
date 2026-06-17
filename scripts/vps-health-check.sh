@@ -13,7 +13,7 @@
 set -u
 
 MOODBEATZ_DIR="${MOODBEATZ_DIR:-/opt/moodbeatz}"
-PUBLIC_HOST="${PUBLIC_HOST:-148.135.138.197.nip.io}"
+PUBLIC_HOST="${PUBLIC_HOST:-moodbeatz.zocomputer.io}"
 
 failures=0
 ok() { printf '\033[1;32mOK\033[0m %s\n' "$*"; }
@@ -46,7 +46,7 @@ echo "--- container names (expect moodbeatz-*) ---"
 docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | head -20
 echo
 
-for name in moodbeatz-db moodbeatz-redis moodbeatz-backend moodbeatz-frontend; do
+for name in moodbeatz-db moodbeatz-redis moodbeatz-backend moodbeatz-frontend moodbeatz-recommendation; do
   if docker ps --format '{{.Names}}' | grep -qx "${name}"; then
     ok "running: ${name}"
   else
@@ -64,6 +64,17 @@ else
   bad "backend health failed: ${out:-curl error}"
 fi
 echo
+
+echo "--- Recommendation service http://127.0.0.1:8002/api/health ---"
+if out=$(curl -sf --max-time 5 http://127.0.0.1:8002/api/health 2>&1); then
+  ok "recommendation-service responds"
+  echo "${out}" | head -c 500
+  echo
+else
+  bad "recommendation-service health failed (port 8002): ${out:-curl error}"
+fi
+echo
+
 
 echo "--- Frontend http://127.0.0.1:3000 ---"
 if code=$(curl -sf -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000 2>/dev/null); then

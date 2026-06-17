@@ -1,26 +1,41 @@
-# Implementation Plan - Performance Optimization
+# Implementation Plan - Standardized VPS Deployment Pipeline
 
-Optimize the MoodBeatz application for faster initial load, improved interaction latency, and reduced bundle size.
+This document describes the deployment architecture and script (`deploy.sh`) for the MoodBeatz application, standardizing how we ship code to the remote VPS.
 
 ## Goals
-1. **Reduce Initial Bundle Size**: Use code splitting to load only what's needed for the current page.
-2. **Lazy Load Heavy Assets**: Defer loading of `face-api` and its models until needed.
-3. **Optimize Image Delivery**: Use lazy loading for track thumbnails.
-4. **Backend Efficiency**: Ensure caching is maximized and responses are compressed.
+1. **Single Source of Truth**: Replace multiple fragmented scripts with one comprehensive `deploy.sh`.
+2. **Reliable State**: Enforce GitHub backups before and after deployment.
+3. **Pristine Environment**: Deep clean dependencies (`node_modules`, `.venv`) before deployment to avoid ghost bugs.
+4. **Automated Verification**: Run health checks on frontend, backend, and recommendation services post-deployment.
 
-## Proposed Changes
+## Deployment Workflow
 
-### Frontend
-- **Code Splitting**: Wrap routes in `React.lazy` and `Suspense` in `App.tsx`.
-- **Face-API**: Ensure `face-api` is a dynamic import in `MoodDetect.tsx`.
-- **Images**: Add `loading="lazy"` to `TrackCard` images.
+The `deploy.sh` script executes the following stages sequentially:
 
-### Infrastructure
-- **Gzip/Brotli**: Optimize Nginx settings for better compression.
-- **Caching**: Review Cache-Control headers for static assets.
+1. **GitHub Backup (Pre-deploy)**
+   - Stages all current files.
+   - Commits as "chore: backup pre-deployment state".
+   - Pushes to the `main` branch.
 
-## Task List
-- [ ] Implement React.lazy in App.tsx
-- [ ] Refactor MoodDetect.tsx for dynamic face-api import
-- [ ] Add loading="lazy" to TrackCard.tsx
-- [ ] Verify bundle sizes and network waterfall
+2. **Aggressive Cleanup**
+   - Deletes `frontend/node_modules`, `backend/.venv`, and `recommendation_system/.venv` locally.
+   - Executes remote command to delete the same directories on the VPS.
+
+3. **Rsync & Remote Execution**
+   - Syncs code to `/opt/moodbeatz` on the VPS.
+   - Executes a remote payload that:
+     - Creates fresh Python 3.11 virtual environments.
+     - Runs `npm ci` / `npm install` for frontend.
+     - Runs `npm run build`.
+     - Updates Caddy and supervisord configurations.
+
+4. **Service Start & Health Checks**
+   - Restarts Caddy and supervisord (`moodbeatz-backend`, `moodbeatz-recommendation`).
+   - cURLs `/api/health` endpoints to verify service health.
+
+5. **Manual Confirmation & Final Push**
+   - Prompts the developer to manually verify the site at the generated domain.
+   - Awaits an `ENTER` key press to finalize the deploy by committing and pushing any post-deploy script adjustments back to GitHub.
+
+## Deprecation Notice
+Legacy scripts such as `scripts/vps-sync-deploy.sh` are deprecated in favor of the root `deploy.sh`.

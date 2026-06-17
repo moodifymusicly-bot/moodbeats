@@ -3,7 +3,23 @@
 All notable, user-visible changes to MoodBeatz. Dates are the day the
 change lands on `main`.
 
+## [Unreleased] — 2026-05-23
+
+### Fixed
+- **Search always returns live YouTube results**: The search endpoint now bypasses stale Redis cache entries that were written when the API key was unavailable. Any cached fallback result is evicted on the next search, forcing a fresh live API call. The backend logs a warning when this eviction occurs.
+- **Cover/karaoke videos excluded from search results**: `(cover)` and `(karaoke)` are now in the post-filter keyword list, so community upload versions no longer appear ahead of official releases.
+- **Search query optimised for best-quality results**: The YouTube API call now sends `order=relevance` and appends `"official audio"` or `"official music video"` to queries that don't already include music keywords.
+- **Duplicate song versions in Discover feed**: The Fresh Picks, Timeless Classics, and Trending subsections of the discover feed now independently deduplicate by normalised title+artist before slicing to the display limit, so the same song cannot appear multiple times in different versions within one section.
+- **Deduplication covers more version suffixes**: `(official audio)`, `(official music video)`, `(cover)`, `(karaoke)`, `(reaction)`, `(tutorial)`, and square-bracket variants like `[Remastered]` are now stripped during title normalisation.
+
+### Changed
+- **Search UI — Best Match card**: The top result is now displayed as a larger, bordered "Best Match" card so the most relevant official upload is immediately visible. Remaining results appear below under an "Alternatives" heading.
+- **Fallback indicator**: When the backend is serving curated picks instead of live YouTube results, a yellow banner now appears in the search results so users understand live search is temporarily unavailable.
+
+---
+
 ## [Unreleased] — 2026-05-09
+
 
 ### Fixed
 - **Duplicate song versions in recommendations**: The recommendation feed no longer surfaces the same song multiple times as separate entries (e.g., "Shape of You", "Shape of You (Remix)", "Shape of You (Live)"). A deduplication step now normalises song titles by stripping common version suffixes — `(remix)`, `(live)`, `(acoustic)`, `(remastered)`, `(radio edit)`, `(feat. …)`, `(extended)`, `(instrumental)`, `(official)`, and trailing year tags like `- 2020` — then groups results by `(normalised_title, artist)`. Only the highest-scoring version from each group reaches the final output. Scoring logic and ranking order are unaffected. **Search results are not affected** — all versions of a song remain visible when users search directly.
