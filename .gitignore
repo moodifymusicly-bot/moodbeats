@@ -27,3 +27,18 @@ frontend/.env*
 
 # Offline deploy bundles (generated; do not commit)
 releases/*.bundle
+
+# VPS/deploy scripts (removed — do not re-add)
+scripts/vps-*
+scripts/*bootstrap*
+scripts/setup*.sh
+deploy.sh
+DEPLOY.md
+docker-compose.yml
+render.yaml
+copy_ssh.py
+
+# Temp/scratch files
+scratch_*.py
+*_log.txt
+desktop.ini
